@@ -1,0 +1,23 @@
+[package]
+name = "latte"
+version = "0.1.0"
+authors = ["Kamyk <k.mykitiuk@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+lalrpop-util = "0.19.0"
+docopt = "1.0"
+regex = "1"
+serde = "1.0"
+serde_derive = "1.0"
+codespan-reporting = "0.9.5"
+unindent = "0.1.7"
+
+[build-dependencies]
+lalrpop = {version = "0.19.0", features = ["lexer"] }
+
+[[bin]]
+name = "latc_llvm"
+path = "src/latc_llvm.rs"

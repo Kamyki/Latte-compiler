@@ -1,0 +1,166 @@
+use std::str::FromStr;
+use crate::model::ast::*;
+use super::{wrap_in_block, new_spanned};
+use crate::error_handling::Error;
+use crate::error_handling::FrontendError::*;
+use lalrpop_util::ParseError;
+
+grammar<'err>(errors: &'err mut Vec<Error<'static>>);
+
+
+Comma<T>: Vec<T> = {
+    <v:(<T> ",")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
+        }
+    }
+};
+
+Tier<Op,NextTier>: Expr = {
+    <ls: @L> <l: Tier<Op,NextTier>> <o:Op> <r: NextTier> <rs: @R> => new_spanned(ls, IExpr::Binary{o: o, l: Box::new(l), r: Box::new(r) }, rs),
+    NextTier
+};
+
+pub program: Program = {
+    top_def* => Program {defs: <> },
+}
+
+top_def: TopDef  = {
+    <l: @L> <ret_type: builtinType> <id: identifier> "(" <args: args> ")" <block: block> <r: @R> => TopDef {ret_type, id, args, block, span: (l,r) },
+    <@L> ! <@R> =>? {
+        errors.extend(ParsingError.add_done((<>), "Invalid funtion definition"));
+        Err(ParseError::User { error: "parsing error" })
+    }
+}
+
+arg: Arg = {
+    <t:builtinType> <i:identifier> => Arg(<>),
+}
+
+args = Comma<arg>;
+
+block: Block  = {
+    <l: @L> "{" <stmts: stmt*> "}" <r: @R> => Block {stmts, span: (l,r)}
+}
+
+stmt: Stmt = {
+    open_stmt,
+    closed_stmt,
+}
+
+open_stmt: Stmt = {
+    <l: @L> "if" "(" <c:expr> ")" <if_true:stmt>  <r: @R> => new_spanned(l, IStmt::Cond {c, if_true: wrap_in_block(if_true)}, r),
+    <l: @L> "if" "(" <c:expr> ")" <if_true:closed_stmt> "else" <if_false:open_stmt>  <r: @R> => new_spanned(l, IStmt::CondElse {c, if_true: wrap_in_block(if_true), if_false:wrap_in_block(if_false)}, r),
+    <l: @L> "while" "(" <c:expr> ")" <while_true:open_stmt>  <r: @R> => new_spanned(l, IStmt::While {c, while_true: wrap_in_block(while_true)}, r),
+}
+
+closed_stmt: Stmt = {
+    <l: @L> ";"  <r: @R> => new_spanned(l, IStmt::Empty, r),
+    <l: @L> <b: block>  <r: @R> => new_spanned(l, IStmt::Block(b), r),
+    <l: @L> <t:builtinType> <items:items> ";"  <r: @R> => new_spanned(l, IStmt::Decl {t, items}, r),
+    <l: @L> <i: identifier> "=" <e: expr> ";"  <r: @R> => new_spanned(l, IStmt::Asg {i, e}, r),
+    <l: @L> <i: identifier> "++" ";"  <r: @R> => new_spanned(l, IStmt::Incr(i), r),
+    <l: @L> <i: identifier> "--" ";"  <r: @R> => new_spanned(l, IStmt::Decr(i), r),
+    <l: @L> "return" <e: expr> ";"  <r: @R> => new_spanned(l, IStmt::Ret(e), r),
+    <l: @L> "return" ";"  <r: @R> => new_spanned(l, IStmt::VRet, r),
+    <l: @L> "if" "(" <c:expr> ")" <if_true:closed_stmt> "else" <if_false:closed_stmt>  <r: @R> => {
+            new_spanned(l, IStmt::CondElse {c, if_true: wrap_in_block(if_true), if_false: wrap_in_block(if_false)},r)
+        },
+    <l: @L> "while" "(" <c:expr> ")" <while_true: closed_stmt>  <r: @R> => new_spanned(l, IStmt::While {c , while_true: wrap_in_block(while_true) }, r),
+    <l: @L> <e: expr> ";" <r: @R> => new_spanned(l, IStmt::Expr(e), r),
+}
+
+builtinType: Type = {
+    <l: @L> "int" <r: @R> => new_spanned(l, IType::Int, r),
+    <l: @L> "string" <r: @R> => new_spanned(l, IType::String, r),
+    <l: @L> "boolean" <r: @R> => new_spanned(l, IType::Boolean, r),
+    <l: @L> "void" <r: @R> => new_spanned(l, IType::Void, r),
+}
+
+item: Item = {
+    <identifier> => Item::NoInit(<>),
+    <i:identifier> "=" <e:expr> => Item::Init {<>},
+}
+items = Comma<item>;
+
+expr = expr0;
+
+expr0 = Tier<logicOr, expr1>;
+expr1 = Tier<logicAnd, expr2>;
+expr2 = Tier<relOp, expr3>;
+expr3 = Tier<addOp, expr4>;
+expr4 = Tier<mulOp, expr5>;
+expr5: Expr = {
+    <l: @L> <o:unOp> <e:expr6>  <r: @R> => new_spanned(l, IExpr::Unary {o, e: Box::new(e)}, r),
+    expr6,
+}
+expr6: Expr = {
+    <l:@L> <s: strLiteral> <r:@R> => new_spanned(l, s, r),
+    @L intLiteral @R => new_spanned(<>),
+    @L boolLiteral @R => new_spanned(<>),
+    <l: @L> <i: identifier> <r: @R> => new_spanned(l, IExpr::Var(i),r ),
+    <l: @L>  <name: identifier> "(" <args: exprs> ")"  <r: @R> => new_spanned(l, IExpr::FunCall {name, args}, r),
+    <l: @L> "(" <e: expr> ")" <r: @R> => new_spanned(l, IExpr::Paren(Box::new(e)), r),
+}
+exprs = Comma<expr>;
+
+strLiteral: IExpr = {
+    <string> => IExpr::String(<>),
+}
+
+intLiteral: IExpr = {
+    <integer> => IExpr::Int(<>),
+}
+
+boolLiteral: IExpr = {
+    "true" => IExpr::Bool(true),
+    "false" => IExpr::Bool(false),
+}
+
+logicOr: BinOp = {
+    "||" => BinOp::Or,
+}
+
+logicAnd: BinOp = {
+    "&&" => BinOp::And,
+}
+
+relOp: BinOp = {
+    "<"  => BinOp::LT,
+    "<=" => BinOp::LE,
+    ">"  => BinOp::GT,
+    ">=" => BinOp::GE,
+    "==" => BinOp::EQ,
+    "!=" => BinOp::NE,
+}
+
+addOp: BinOp = {
+    "+" => BinOp::Add,
+    "-" => BinOp::Sub,
+};
+
+mulOp: BinOp = {
+    "*" => BinOp::Mul,
+    "/" => BinOp::Div,
+    "%" => BinOp::Mod,
+};
+
+unOp: UnOp = {
+    "-" => UnOp::IntNegation,
+    "!" => UnOp::BoolNegation
+}
+
+integer: i32 = {
+    r"[0-9]+" => i32::from_str(<>).unwrap(),
+};
+
+identifier: Id = {
+    <l: @L> <i: r"[a-zA-Z][a-zA-Z0-9_]*">  <r: @R> =>  new_spanned(l, i.to_string(), r)
+};
+
+string: String = {
+    <s: r#""[^"]*""#> => s[1..s.len()-1].to_string()
+}
