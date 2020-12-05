@@ -27,24 +27,26 @@ pub enum FrontendError {
     ArithmeticError,
 }
 
-impl FrontendError {
-    pub fn to_msg(&self) -> &'static str {
-        match self {
-            Self::DoubleDeclaration => "Double declaration of element",
-            Self::WrongReturnType => "Mismatch of return type",
-            Self::GlobalVariable => "Global variable declaration",
-            Self::LocalFunction => "Local function definition",
-            Self::InvalidComment => "Invalid comment",
-            Self::ParsingError => "Parsing Error",
-            Self::UndefinedVariable => "Undefined variable",
-            Self::UndefinedFunction => "Undefined function",
-            Self::MismatchedTypes => "Mismatched types",
-            Self::FunctionCall => "Function call",
-            Self::WrongConditionType => "Wrong condition type",
-            Self::ArithmeticError => "Division by zero",
-        }
+impl From<&FrontendError> for String {
+    fn from(e: &FrontendError) -> Self {
+        match e {
+            FrontendError::DoubleDeclaration => "Double declaration of element",
+            FrontendError::WrongReturnType => "Mismatch of return type",
+            FrontendError::GlobalVariable => "Global variable declaration",
+            FrontendError::LocalFunction => "Local function definition",
+            FrontendError::InvalidComment => "Invalid comment",
+            FrontendError::ParsingError => "Parsing Error",
+            FrontendError::UndefinedVariable => "Undefined variable",
+            FrontendError::UndefinedFunction => "Undefined function",
+            FrontendError::MismatchedTypes => "Mismatched types",
+            FrontendError::FunctionCall => "Function call",
+            FrontendError::WrongConditionType => "Wrong condition type",
+            FrontendError::ArithmeticError => "Division by zero",
+        }.to_string()
     }
+}
 
+impl FrontendError {
     pub fn add_done(self, span: Span, msg: &str) -> Vec<Error> {
         vec![Error {
             e_type: self,
@@ -179,7 +181,7 @@ pub fn print_errors(file: &Code, errors: &[Error]) -> () {
             }
         }
         let diagnostic = Diagnostic::error()
-            .with_message(e_type.to_msg())
+            .with_message(e_type)
             .with_labels(labels);
         term::emit(&mut writer.lock(), &config, file, &diagnostic).unwrap();
     }

@@ -11,7 +11,19 @@ pub struct Program {
 pub type Span = (usize, usize);
 
 #[derive(Debug)]
-pub struct TopDef {
+pub enum TopDef {
+    Function(Function),
+    Class(Class),
+}
+
+#[derive(Debug)]
+pub struct Class {
+    pub id: Id,
+    pub fields: Vec<Arg>,
+}
+
+#[derive(Debug)]
+pub struct Function {
     pub ret_type: Type,
     pub id: Id,
     pub args: Vec<Arg>,
@@ -46,11 +58,11 @@ pub enum IStmt {
 
     },
     Asg {
-        i: Id,
+        i: Target,
         e: Expr,
     },
-    Incr(Id),
-    Decr(Id),
+    Incr(Target),
+    Decr(Target),
     Ret(Expr),
     VRet,
     Cond {
@@ -69,6 +81,12 @@ pub enum IStmt {
     Expr(Expr),
 }
 
+#[derive(Debug)]
+pub enum Target {
+    Id(Id),
+    Field(Field),
+}
+
 pub type Type = Spanned<IType>;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -77,6 +95,7 @@ pub enum IType {
     String,
     Boolean,
     Void,
+    Class(String),
 }
 
 impl Display for IType {
@@ -86,6 +105,7 @@ impl Display for IType {
             IType::String => "string",
             IType::Boolean => "boolean",
             IType::Void => "void",
+            IType::Class(c) => c,
         })
     }
 }
@@ -115,12 +135,25 @@ pub enum IExpr {
     Var(Id),
     Int(i32),
     Bool(bool),
+    Null,
     FunCall {
         name: Id,
         args: Vec<Expr>,
     },
     String(String),
     Paren(Box<Expr>),
+    Field(Field),
+    Object(Type),
+    Cast {
+        t: Type,
+        e: Box<Expr>,
+    },
+}
+
+#[derive(Debug)]
+pub struct Field {
+    pub e: Box<Expr>,
+    pub id: Id,
 }
 
 #[derive(Debug)]

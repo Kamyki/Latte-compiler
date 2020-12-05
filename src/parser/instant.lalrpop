@@ -19,6 +19,10 @@ Comma<T>: Vec<T> = {
     }
 };
 
+Colon<T>: Vec<T> = {
+    <v:(<T> ";")*> => v,
+};
+
 Tier<Op,NextTier>: Expr = {
     <ls: @L> <l: Tier<Op,NextTier>> <o:Op> <r: NextTier> <rs: @R> => new_spanned(ls, IExpr::Binary{o: o, l: Box::new(l), r: Box::new(r) }, rs),
     NextTier
@@ -29,17 +33,19 @@ pub program: Program = {
 }
 
 top_def: TopDef  = {
-    <l: @L> <ret_type: builtinType> <id: identifier> "(" <args: args> ")" <block: block> <r: @R> => TopDef {ret_type, id, args, block, span: (l,r) },
+    <l: @L> <ret_type: cType> <id: identifier> "(" <args: args> ")" <block: block> <r: @R> => TopDef::Function(Function {ret_type, id, args, block, span: (l,r)}),
+    <l: @L> "class" <id: identifier> "{" <fields: fields> "}" <r: @R> => TopDef::Class(Class {id, fields}),
     <@L> ! <@R> =>? {
-        errors.extend(ParsingError.add_done((<>), "Invalid funtion definition"));
+        errors.extend(ParsingError.add_done((<>), "Invalid top definition"));
         Err(ParseError::User { error: "parsing error" })
     }
 }
 
 arg: Arg = {
-    <t:builtinType> <i:identifier> => Arg(<>),
+    <t:cType> <i:identifier> => Arg(<>),
 }
 
+fields = Colon<arg>;
 args = Comma<arg>;
 
 block: Block  = {
@@ -60,10 +66,10 @@ open_stmt: Stmt = {
 closed_stmt: Stmt = {
     <l: @L> ";"  <r: @R> => new_spanned(l, IStmt::Empty, r),
     <l: @L> <b: block>  <r: @R> => new_spanned(l, IStmt::Block(b), r),
-    <l: @L> <t:builtinType> <items:items> ";"  <r: @R> => new_spanned(l, IStmt::Decl {t, items}, r),
-    <l: @L> <i: identifier> "=" <e: expr> ";"  <r: @R> => new_spanned(l, IStmt::Asg {i, e}, r),
-    <l: @L> <i: identifier> "++" ";"  <r: @R> => new_spanned(l, IStmt::Incr(i), r),
-    <l: @L> <i: identifier> "--" ";"  <r: @R> => new_spanned(l, IStmt::Decr(i), r),
+    <l: @L> <t:cType> <items:items> ";"  <r: @R> => new_spanned(l, IStmt::Decl {t, items}, r),
+    <l: @L> <i: target> "=" <e: expr> ";"  <r: @R> => new_spanned(l, IStmt::Asg {i, e}, r),
+    <l: @L> <i: target> "++" ";"  <r: @R> => new_spanned(l, IStmt::Incr(i), r),
+    <l: @L> <i: target> "--" ";"  <r: @R> => new_spanned(l, IStmt::Decr(i), r),
     <l: @L> "return" <e: expr> ";"  <r: @R> => new_spanned(l, IStmt::Ret(e), r),
     <l: @L> "return" ";"  <r: @R> => new_spanned(l, IStmt::VRet, r),
     <l: @L> "if" "(" <c:expr> ")" <if_true:closed_stmt> "else" <if_false:closed_stmt>  <r: @R> => {
@@ -71,20 +77,40 @@ closed_stmt: Stmt = {
         },
     <l: @L> "while" "(" <c:expr> ")" <while_true: closed_stmt>  <r: @R> => new_spanned(l, IStmt::While {c , while_true: wrap_in_block(while_true) }, r),
     <l: @L> <e: expr> ";" <r: @R> => new_spanned(l, IStmt::Expr(e), r),
+    <l: @L> <e:!> <r: @R> =>? {
+        if let ParseError::UnrecognizedToken{token: (a, _, b), ..} = e.error {
+            errors.extend(ParsingError.add_done((a,b), "Unexpected token found here"));
+        } else {
+            errors.extend(ParsingError.add_done((r, r), "Unrecognizable statement starts here"));
+        }
+        Err(ParseError::User { error: "parsing error" })
+    }
 }
 
-builtinType: Type = {
+target: Target = {
+     <l: @L> <i: identifier> <r: @R> => Target::Id(i),
+     <l: @L> <f: field>  <r: @R> => Target::Field(f),
+}
+
+cType: Type = {
     <l: @L> "int" <r: @R> => new_spanned(l, IType::Int, r),
     <l: @L> "string" <r: @R> => new_spanned(l, IType::String, r),
     <l: @L> "boolean" <r: @R> => new_spanned(l, IType::Boolean, r),
     <l: @L> "void" <r: @R> => new_spanned(l, IType::Void, r),
+    <l: @L> <id: type_name> <r: @R> => new_spanned(l, IType::Class(id.item), r),
 }
 
 item: Item = {
     <identifier> => Item::NoInit(<>),
     <i:identifier> "=" <e:expr> => Item::Init {<>},
 }
-items = Comma<item>;
+items: Vec<Item> = {
+     <v:(<item> ",")*> <e:item> => {
+        let mut v = v;
+        v.push(e);
+        v
+    }
+}
 
 expr = expr0;
 
@@ -93,19 +119,51 @@ expr1 = Tier<logicAnd, expr2>;
 expr2 = Tier<relOp, expr3>;
 expr3 = Tier<addOp, expr4>;
 expr4 = Tier<mulOp, expr5>;
+
 expr5: Expr = {
-    <l: @L> <o:unOp> <e:expr6>  <r: @R> => new_spanned(l, IExpr::Unary {o, e: Box::new(e)}, r),
+    <l: @L> <o:unOp> <e:expr5>  <r: @R> => new_spanned(l, IExpr::Unary {o, e: Box::new(e)}, r),
     expr6,
 }
+
 expr6: Expr = {
-    <l:@L> <s: strLiteral> <r:@R> => new_spanned(l, s, r),
+    <l: @L> <t: expr9>  <e: expr6> <r: @R> =>? {
+        if let IExpr::Paren(e_p) = t.item {
+            if let IExpr::Var(id) = e_p.item {
+                return Ok(new_spanned(l, IExpr::Cast {t: Type {item: IType::Class(id.item), span: id.span.clone()}, e: Box::new(e)}, r))
+            }
+        }
+        errors.extend(ParsingError.add_done((l, r), "Invalid casting syntax"));
+        Err(ParseError::User { error: "parsing error" })
+    },
+    expr7,
+}
+
+expr7: Expr = {
+
+    <l: @L> <f: field> <r: @R> => new_spanned(l, IExpr::Field(f), r),
+    <l: @L> "new" <t: cType> <r: @R> => new_spanned(l, IExpr::Object(t), r),
+    <l: @L>  <name: identifier> "(" <args: exprs> ")"  <r: @R> => new_spanned(l, IExpr::FunCall {name, args}, r),
+    expr8
+}
+
+expr8: Expr = {
+    <l: @L> <i: identifier> <r: @R> => new_spanned(l, IExpr::Var(i), r),
+    @L nullLiteral @R => new_spanned(<>),
     @L intLiteral @R => new_spanned(<>),
     @L boolLiteral @R => new_spanned(<>),
-    <l: @L> <i: identifier> <r: @R> => new_spanned(l, IExpr::Var(i),r ),
-    <l: @L>  <name: identifier> "(" <args: exprs> ")"  <r: @R> => new_spanned(l, IExpr::FunCall {name, args}, r),
+    @L strLiteral @R => new_spanned(<>),
+    expr9
+}
+
+expr9: Expr = {
     <l: @L> "(" <e: expr> ")" <r: @R> => new_spanned(l, IExpr::Paren(Box::new(e)), r),
 }
+
 exprs = Comma<expr>;
+
+field: Field = {
+    <e: expr7> "." <id: identifier> => Field {e: Box::new(e), id}
+}
 
 strLiteral: IExpr = {
     <string> => IExpr::String(<>),
@@ -118,6 +176,10 @@ intLiteral: IExpr = {
 boolLiteral: IExpr = {
     "true" => IExpr::Bool(true),
     "false" => IExpr::Bool(false),
+}
+
+nullLiteral: IExpr = {
+    "null" => IExpr::Null,
 }
 
 logicOr: BinOp = {
@@ -158,8 +220,12 @@ integer: i32 = {
 };
 
 identifier: Id = {
-    <l: @L> <i: r"[a-zA-Z][a-zA-Z0-9_]*">  <r: @R> =>  new_spanned(l, i.to_string(), r)
+    <l: @L> <i: r"[a-zA-Z][a-zA-Z0-9_]*">  <r: @R> =>  new_spanned(l, i.to_string(), r),
 };
+
+type_name: Id = {
+    identifier
+}
 
 string: String = {
     <s: r#""[^"]*""#> => s[1..s.len()-1].to_string()

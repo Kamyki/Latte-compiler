@@ -1,4 +1,4 @@
-use crate::model::ast::Program;
+use crate::model::ast::{Program, TopDef};
 use crate::frontend::function_analyser::{FunctionAnalyser};
 use crate::error_handling::{print_errors, Code, CheckerResult, AccErrors};
 use crate::frontend::simplifier::Simplifier;
@@ -28,5 +28,8 @@ pub fn check_semantics(loc_map: &Code, ast: &mut Program) {
 }
 
 fn check_functions(analyser: &mut FunctionAnalyser, ast: &Program) -> CheckerResult<()> {
-    ast.defs.iter().map(|d| analyser.check_function(d)).acc()
+    ast.defs.iter().map(|d| match d {
+        TopDef::Function(f) => analyser.check_function(f),
+        TopDef::Class(_) => Ok(())
+    }).acc()
 }

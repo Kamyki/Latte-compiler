@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::model::ast::{Program, Id, Type, TopDef, Span, IType};
+use crate::model::ast::{Program, Id, Type, TopDef, Span, IType, Function};
 use crate::error_handling::FrontendError::{DoubleDeclaration, FunctionCall, MismatchedTypes};
 use crate::error_handling::{CheckerResult, AccErrors};
 
@@ -30,7 +30,10 @@ impl<'a> GlobalAnalyser<'a> {
 
     fn add_function_names(&mut self) -> CheckerResult<()> {
         self.ast.defs.iter()
-            .map(|top_def| self.insert_function(top_def.id.clone(), top_def.into()))
+            .map(|top_def| match top_def {
+                TopDef::Function(f) => self.insert_function(f.id.clone(), f.into()),
+                TopDef::Class(_) => Ok(())
+            })
             .acc()
     }
 }
@@ -40,11 +43,11 @@ pub struct FunctionSignature {
     args: Vec<Type>,
 }
 
-impl From<&TopDef> for FunctionSignature {
-    fn from(top_def: &TopDef) -> Self {
+impl From<&Function> for FunctionSignature {
+    fn from(fun: &Function) -> Self {
         Self {
-            ret_type: top_def.ret_type.clone(),
-            args: top_def.args.iter().map(|x| x.0.clone()).collect(),
+            ret_type: fun.ret_type.clone(),
+            args: fun.args.iter().map(|x| x.0.clone()).collect(),
         }
     }
 }

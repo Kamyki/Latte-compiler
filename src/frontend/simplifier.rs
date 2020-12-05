@@ -13,7 +13,11 @@ impl Simplifier {
         let mut res = vec![];
 
         for top_def in &mut ast.defs {
-            res.push(self.simplify_block(&mut top_def.block));
+            match top_def {
+                TopDef::Function(f) => res.push(self.simplify_block(&mut f.block)),
+                TopDef::Class(_) => {}
+            }
+
         }
         res.acc()
     }
@@ -157,6 +161,10 @@ impl Simplifier {
             }
             IExpr::String(_) => Ok(()),
             IExpr::Paren(e) => self.simplify_expression(e),
+            IExpr::Field { .. } => todo!(),
+            IExpr::Object(_) => todo!(),
+            IExpr::Null => todo!(),
+            IExpr::Cast {..} => todo!(),
         }
     }
 }

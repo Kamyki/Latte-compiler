@@ -70,7 +70,7 @@ impl<'a> FunctionAnalyser<'a> {
 
 impl<'a> FunctionAnalyser<'a> {
 
-    pub fn check_function(&self, top_def: &TopDef) -> CheckerResult<()> {
+    pub fn check_function(&self, top_def: &Function) -> CheckerResult<()> {
         let mut function_context = FunctionAnalyser::new_frame(self, &top_def.ret_type);
         top_def.args.iter()
             .map(|a| function_context.insert_var(a.1.clone(), a.0.clone()))
@@ -107,7 +107,10 @@ impl<'a> FunctionAnalyser<'a> {
                 }).acc().and_then(|_: ()| Ok(false))
             }
             IStmt::Asg { i, e } => {
-                let t1 = self.find_var(i);
+                let t1 = match i {
+                    Target::Id(id) => self.find_var(id),
+                    Target::Field(_) => todo!(),
+                };
                 self.check_expr(e)
                     .and_then(|t2| match t1 {
                         None => Err(UndefinedVariable.add_done(stmt.span, "Assignment to undefined variable")),
@@ -117,8 +120,15 @@ impl<'a> FunctionAnalyser<'a> {
                             .done())
                     })
             }
-            IStmt::Incr(_) => Ok(false),
-            IStmt::Decr(_) => Ok(false),
+            IStmt::Incr(Target::Id(i)) |
+            IStmt::Decr(Target::Id(i)) => {
+                match self.find_var(i) {
+                    Some(t) if t.item == IType::Int => Ok(false),
+                    _ => Err(UndefinedVariable.add_done(stmt.span, "Use of undeclared variable here")),
+                }
+            }
+            IStmt::Incr(Target::Field(_)) |
+            IStmt::Decr(Target::Field(_)) => todo!(),
             IStmt::Ret(e) => self.check_expr(e)
                 .and_then(|t| Self::match_type(self.ret_type(), &t))
                 .and(Ok(true)),
@@ -178,6 +188,10 @@ impl<'a> FunctionAnalyser<'a> {
             }
             IExpr::String(_) => Ok(Type { item: IType::String, span: expr.span }),
             IExpr::Paren(e) => self.check_expr(e),
+            IExpr::Field(_) => todo!(),
+            IExpr::Object(_) => todo!(),
+            IExpr::Null => todo!(),
+            IExpr::Cast {..} => todo!(),
         }
     }
 
