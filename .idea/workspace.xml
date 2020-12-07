@@ -13,12 +13,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="6b918d17-e4ba-4bae-935a-b7761aafdc0f" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/Makefile" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/env" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/frontend/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/frontend/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/latc_llvm.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/latc.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -103,7 +99,7 @@
       <updated>1606043679035</updated>
       <workItem from="1606043680218" duration="67825000" />
       <workItem from="1606847255060" duration="29384000" />
-      <workItem from="1607170794424" duration="39307000" />
+      <workItem from="1607170794424" duration="39707000" />
     </task>
     <servers />
   </component>
@@ -193,11 +189,11 @@
     </state>
     <state x="582" y="-785" width="598" height="490" key="find.popup/-79.-1080.1920.1080/0.0.1536.960@-79.-1080.1920.1080" timestamp="1607349608352" />
     <state x="582" y="-785" width="598" height="490" key="find.popup/-79.-1080.1920.1080/0.23.1536.873@-79.-1080.1920.1080" timestamp="1607349873972" />
-    <state x="561" y="251" width="670" height="676" key="search.everywhere.popup" timestamp="1607193493349">
-      <screen x="0" y="0" width="1792" height="1120" />
+    <state x="522" y="-838" width="718" height="652" key="search.everywhere.popup" timestamp="1607351142831">
+      <screen x="-79" y="-1080" width="1920" height="1080" />
     </state>
     <state x="532" y="-838" width="718" height="652" key="search.everywhere.popup/-69.-1080.1920.1080/0.0.1792.1120@-69.-1080.1920.1080" timestamp="1606215493890" />
-    <state x="522" y="-838" width="718" height="652" key="search.everywhere.popup/-79.-1080.1920.1080/0.0.1536.960@-79.-1080.1920.1080" timestamp="1606948776629" />
+    <state x="522" y="-838" width="718" height="652" key="search.everywhere.popup/-79.-1080.1920.1080/0.0.1536.960@-79.-1080.1920.1080" timestamp="1607351142831" />
     <state x="561" y="251" width="670" height="676" key="search.everywhere.popup/0.0.1792.1120@0.0.1792.1120" timestamp="1607193493349" />
   </component>
   <component name="XDebuggerManager">
