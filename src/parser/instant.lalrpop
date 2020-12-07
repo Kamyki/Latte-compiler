@@ -5,8 +5,7 @@ use crate::error_handling::Error;
 use crate::error_handling::FrontendError::*;
 use lalrpop_util::ParseError;
 
-grammar<'err>(errors: &'err mut Vec<Error<'static>>);
-
+grammar<'err>(errors: &'err mut Vec<Error>);
 
 Comma<T>: Vec<T> = {
     <v:(<T> ",")*> <e:T?> => match e {
@@ -33,12 +32,46 @@ pub program: Program = {
 }
 
 top_def: TopDef  = {
-    <l: @L> <ret_type: cType> <id: identifier> "(" <args: args> ")" <block: block> <r: @R> => TopDef::Function(Function {ret_type, id, args, block, span: (l,r)}),
-    <l: @L> "class" <id: identifier> "{" <fields: fields> "}" <r: @R> => TopDef::Class(Class {id, fields}),
+    function => TopDef::Function(<>),
+    class => TopDef::Class(<>),
     <@L> ! <@R> =>? {
         errors.extend(ParsingError.add_done((<>), "Invalid top definition"));
         Err(ParseError::User { error: "parsing error" })
     }
+}
+
+class: Class = {
+    <l: @L> "class" <id: identifier> "{" <class_fields: classField*> "}" <r: @R> => {
+        let mut fields = vec![];
+        let mut methods = vec![];
+        for d in class_fields {
+            match d {
+                ClassField::Field(f) => fields.push(f),
+                ClassField::Method(m) => methods.push(m)
+            }
+        }
+        Class {id, fields, methods, span: (l,r), super_class: None}
+    },
+    <l: @L> "class" <id: identifier> "extends" <id2:identifier> "{" <class_fields: classField*> "}" <r: @R> => {
+        let mut fields = vec![];
+        let mut methods = vec![];
+        for d in class_fields {
+            match d {
+                ClassField::Field(f) => fields.push(f),
+                ClassField::Method(m) => methods.push(m)
+            }
+        }
+        Class {id, fields, methods, span: (l,r), super_class: Some(id2)}
+    },
+}
+
+function: Function ={
+    <l: @L> <ret_type: cType> <id: identifier> "(" <args: args> ")" <block: block> <r: @R> => Function {ret_type, id, args, block, span: (l,r)},
+}
+
+classField: ClassField =  {
+    <arg> ";" => ClassField::Field(<>),
+    function => ClassField::Method(<>)
 }
 
 arg: Arg = {
@@ -142,7 +175,7 @@ expr7: Expr = {
 
     <l: @L> <f: field> <r: @R> => new_spanned(l, IExpr::Field(f), r),
     <l: @L> "new" <t: cType> <r: @R> => new_spanned(l, IExpr::Object(t), r),
-    <l: @L>  <name: identifier> "(" <args: exprs> ")"  <r: @R> => new_spanned(l, IExpr::FunCall {name, args}, r),
+    <l: @L>  <name: target> "(" <args: exprs> ")"  <r: @R> => new_spanned(l, IExpr::FunCall {name, args}, r),
     expr8
 }
 
@@ -183,31 +216,31 @@ nullLiteral: IExpr = {
 }
 
 logicOr: BinOp = {
-    "||" => BinOp::Or,
+    <l: @L> "||" <r: @R> => new_spanned(l, IBinOp::Or, r)
 }
 
 logicAnd: BinOp = {
-    "&&" => BinOp::And,
+    <l: @L> "&&" <r: @R> => new_spanned(l, IBinOp::And, r)
 }
 
 relOp: BinOp = {
-    "<"  => BinOp::LT,
-    "<=" => BinOp::LE,
-    ">"  => BinOp::GT,
-    ">=" => BinOp::GE,
-    "==" => BinOp::EQ,
-    "!=" => BinOp::NE,
+    <l: @L> "<" <r: @R> => new_spanned(l, IBinOp::LT, r),
+    <l: @L> "<=" <r: @R> => new_spanned(l, IBinOp::LE, r),
+    <l: @L> ">"  <r: @R> => new_spanned(l, IBinOp::GT, r),
+    <l: @L> ">=" <r: @R> => new_spanned(l, IBinOp::GE, r),
+    <l: @L> "==" <r: @R> => new_spanned(l, IBinOp::EQ, r),
+    <l: @L> "!=" <r: @R> => new_spanned(l, IBinOp::NE, r),
 }
 
 addOp: BinOp = {
-    "+" => BinOp::Add,
-    "-" => BinOp::Sub,
+    <l: @L> "+" <r: @R> => new_spanned(l, IBinOp::Add, r),
+    <l: @L> "-" <r: @R> => new_spanned(l, IBinOp::Sub, r),
 };
 
 mulOp: BinOp = {
-    "*" => BinOp::Mul,
-    "/" => BinOp::Div,
-    "%" => BinOp::Mod,
+    <l: @L> "*" <r: @R> => new_spanned(l, IBinOp::Mul, r),
+    <l: @L> "/" <r: @R> => new_spanned(l, IBinOp::Div, r),
+    <l: @L> "%" <r: @R> => new_spanned(l, IBinOp::Mod, r),
 };
 
 unOp: UnOp = {

@@ -1,16 +1,16 @@
-use std::collections::HashMap;
-use crate::model::ast::{Program, Id, Type, TopDef, Span, IType, Function};
-use crate::error_handling::FrontendError::{DoubleDeclaration, FunctionCall, MismatchedTypes};
+use std::collections::{HashMap, HashSet};
+use crate::model::ast::{Program, Id, Type, TopDef, Span, IType, Function, Class};
+use crate::error_handling::FrontendError::{DoubleDeclaration, FunctionCall, MismatchedTypes, WrongExtend, CircularClassHierarchy};
 use crate::error_handling::{CheckerResult, AccErrors};
 
-pub struct GlobalAnalyser<'a> {
+pub struct GlobalAnalyser {
     pub functions: HashMap<String, FunctionSignature>,
-    ast: &'a Program,
+    pub classes: HashMap<String, ClassSignature>,
 }
 
-impl<'a> GlobalAnalyser<'a> {
-    pub fn new(ast: &'a Program) -> Self {
-        Self { functions: HashMap::new(), ast }
+impl GlobalAnalyser {
+    pub fn new() -> Self {
+        Self { functions: HashMap::new(), classes: HashMap::new() }
     }
 
     fn insert_function(&mut self, id: Id, fs: FunctionSignature) -> CheckerResult<()> {
@@ -20,21 +20,159 @@ impl<'a> GlobalAnalyser<'a> {
             Some(_) => Err(DoubleDeclaration.add_done(span, "There is another function with that name")),
         }
     }
+
+    fn insert_class(&mut self, id: Id, cs: ClassSignature) -> CheckerResult<()> {
+        let span = id.span;
+        match self.classes.insert(id.item, cs) {
+            None => Ok(()),
+            Some(_) => Err(DoubleDeclaration.add_done(span, "There is another class with that name")),
+        }
+    }
 }
 
-impl<'a> GlobalAnalyser<'a> {
-    pub fn check(&mut self) -> CheckerResult<()> {
+impl GlobalAnalyser {
+    pub fn check(&mut self, ast: &Program) -> CheckerResult<()> {
         self.functions.extend(builtin_function());
-        self.add_function_names()
+        self.add_function_names(ast)
+            .and(self.add_class_names(ast))
+            .and(self.check_super())
     }
 
-    fn add_function_names(&mut self) -> CheckerResult<()> {
-        self.ast.defs.iter()
+    fn add_function_names(&mut self, ast: &Program) -> CheckerResult<()> {
+        ast.defs.iter()
             .map(|top_def| match top_def {
                 TopDef::Function(f) => self.insert_function(f.id.clone(), f.into()),
                 TopDef::Class(_) => Ok(())
             })
             .acc()
+    }
+
+    fn add_class_names(&mut self, ast: &Program) -> CheckerResult<()> {
+        ast.defs.iter()
+            .map(|top_def| match top_def {
+                TopDef::Function(_) => Ok(()),
+                TopDef::Class(c) => self.insert_class(c.id.clone(), c.into())
+            })
+            .acc()
+    }
+
+    fn check_super(&mut self) -> CheckerResult<()> {
+        let mut errors = vec![];
+        let mut discovered = HashSet::new();
+        let mut departure = HashMap::new();
+        let mut time = 0;
+
+        for class in self.classes.values() {
+            if let Some(super_class) = &class.super_class {
+                if !self.classes.contains_key(&super_class.item) {
+                    errors.push(Err(WrongExtend.add_done(super_class.span, "Extending not existing class")))
+                }
+            }
+        }
+        if !errors.is_empty() {
+            return errors.acc();
+        }
+
+        for name in self.classes.keys() {
+            if !discovered.contains(name) {
+                dfs(&self.classes, name, &mut discovered, &mut departure, &mut time);
+            }
+        }
+
+        for (name, class) in &self.classes {
+            if let Some(super_class) = &class.super_class {
+                if departure[&super_class.item] >= departure[name] {
+                    let mut err = CircularClassHierarchy.add(super_class.span, "Detected circular class hierarchy from here");
+                    let mut super_super_class = &super_class.item;
+                    let mut nr = 1;
+                    while name != super_super_class {
+                        err = err.add(self.classes[super_super_class].type_name.span, format!("Then this {}", nr));
+                        super_super_class = &self.classes[super_super_class].super_class.as_ref().unwrap().item;
+                        nr += 1;
+                    }
+                    err = err.add(class.type_name.span, "And back to beginning");
+                    errors.push(Err(err.done()))
+                }
+            }
+        }
+        errors.acc()
+    }
+
+
+    pub fn extends(&self, cs: &ClassSignature, t: &IType) -> bool {
+        if let Some(s) = &cs.super_class {
+            if let Some(super_class) = self.classes.get(&s.item) {
+                return if super_class.type_name.item == *t {
+                    true
+                } else {
+                    self.extends(super_class, t)
+                };
+            }
+        }
+        false
+    }
+}
+
+fn dfs(graph: &HashMap<String, ClassSignature>, v: &String, discovered: &mut HashSet<String>, departure: &mut HashMap<String, u32>, time: &mut u32) {
+    discovered.insert(v.clone());
+
+    println!("{:?}", discovered);
+    println!("{:?}", departure);
+    println!("{:?}", time);
+
+    if let Some(u) = &graph[v].super_class {
+        if !discovered.contains(&u.item) {
+            dfs(graph, &u.item, discovered, departure, time);
+        }
+    }
+    departure.insert(v.clone(), *time);
+    *time += 1;
+}
+
+pub struct ClassSignature {
+    type_name: Type,
+    fields: HashMap<String, Type>,
+    methods: HashMap<String, FunctionSignature>,
+    super_class: Option<Id>,
+}
+
+impl From<&Class> for ClassSignature {
+    fn from(class: &Class) -> Self {
+        let mut cs = Self {
+            fields: HashMap::new(),
+            methods: HashMap::new(),
+            super_class: class.super_class.clone(),
+            type_name: Type { item: IType::Class(class.id.item.clone()), span: class.id.span },
+        };
+        let mut errs = vec![];
+        for field in &class.fields {
+            let span = field.1.span;
+            let e = match cs.fields.insert(field.1.item.clone(), field.0.clone()) {
+                None => Ok(()),
+                Some(_) => Err(DoubleDeclaration.add_done(span, "There is another field with that name")),
+            };
+            errs.push(e)
+        }
+        for method in &class.methods {
+            let span = method.id.span;
+            let fs = FunctionSignature::from(method);
+            let e = match cs.methods.insert(method.id.item.clone(), fs) {
+                None => Ok(()),
+                Some(_) => Err(DoubleDeclaration.add_done(span, "There is another method with that name")),
+            };
+            errs.push(e)
+        }
+        cs
+    }
+}
+
+impl ClassSignature {
+    pub fn find_var(&self, id: &Id) -> Option<&Type> {
+        self.fields.get(id.item.as_str())
+    }
+
+    pub fn find_method(&self, id: &Id) -> Option<&FunctionSignature> {
+        self.methods.get(id.item.as_str())
     }
 }
 

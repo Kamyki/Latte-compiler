@@ -7,7 +7,7 @@ use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
 
 use crate::model::ast::Span;
 
-pub type CheckerResult<T> = Result<T, Vec<Error<'static>>>;
+pub type CheckerResult<T> = Result<T, Vec<Error>>;
 
 pub type Code<'a, 'b> = SimpleFile<&'a str, &'b str>;
 
@@ -25,6 +25,11 @@ pub enum FrontendError {
     FunctionCall,
     WrongConditionType,
     ArithmeticError,
+    FieldAccess,
+    UnknownClass,
+    CastingError,
+    WrongExtend,
+    CircularClassHierarchy,
 }
 
 impl From<&FrontendError> for String {
@@ -42,37 +47,42 @@ impl From<&FrontendError> for String {
             FrontendError::FunctionCall => "Function call",
             FrontendError::WrongConditionType => "Wrong condition type",
             FrontendError::ArithmeticError => "Division by zero",
+            FrontendError::FieldAccess => "Incorrect field access",
+            FrontendError::UnknownClass => "Unknown class",
+            FrontendError::CastingError => "Casting error",
+            FrontendError::WrongExtend => "Class extending error",
+            FrontendError::CircularClassHierarchy => "Detected circular class hierarchy"
         }.to_string()
     }
 }
 
 impl FrontendError {
-    pub fn add_done(self, span: Span, msg: &str) -> Vec<Error> {
+    pub fn add_done<S: Into<String>>(self, span: Span, msg: S) -> Vec<Error> {
         vec![Error {
             e_type: self,
             over_span: None,
-            msgs: vec![(span, msg)],
+            msgs: vec![(span, msg.into())],
         }]
     }
 
-    pub fn add(self, span: Span, msg: &str) -> Error {
+    pub fn add<S: Into<String>>(self, span: Span, msg: S) -> Error {
         Error {
             e_type: self,
             over_span: None,
-            msgs: vec![(span, msg)],
+            msgs: vec![(span, msg.into())],
         }
     }
 }
 
-pub struct Error<'a> {
+pub struct Error {
     pub e_type: FrontendError,
     pub over_span: Option<Span>,
-    pub msgs: Vec<(Span, &'a str)>,
+    pub msgs: Vec<(Span, String)>,
 }
 
-impl<'a> Error<'a> {
-    pub fn add(mut self, span: Span, msg: &'a str) -> Error {
-        self.msgs.push((span, msg));
+impl Error {
+    pub fn add<S: Into<String>>(mut self, span: Span, msg: S) -> Error {
+        self.msgs.push((span, msg.into()));
         self
     }
 
@@ -177,7 +187,7 @@ pub fn print_errors(file: &Code, errors: &[Error]) -> () {
         };
         for (span, msg) in msgs {
             if span.0 <= span.1 {
-                labels.push(Label::primary((), span.0..span.1).with_message(*msg));
+                labels.push(Label::primary((), span.0..span.1).with_message(msg));
             }
         }
         let diagnostic = Diagnostic::error()

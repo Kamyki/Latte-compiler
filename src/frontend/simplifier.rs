@@ -17,7 +17,6 @@ impl Simplifier {
                 TopDef::Function(f) => res.push(self.simplify_block(&mut f.block)),
                 TopDef::Class(_) => {}
             }
-
         }
         res.acc()
     }
@@ -76,74 +75,74 @@ impl Simplifier {
                 }
                 _ => Ok(()),
             },
-            IExpr::Binary { o, l, r } => match (o, &l.item, &r.item) {
-                (BinOp::Mul, IExpr::Int(v1), IExpr::Int(v2)) => {
+            IExpr::Binary { o, l, r } => match (&o.item, &l.item, &r.item) {
+                (IBinOp::Mul, IExpr::Int(v1), IExpr::Int(v2)) => {
                     expr.item = IExpr::Int(v1 * v2);
                     Ok(())
                 }
-                (BinOp::Add, IExpr::Int(v1), IExpr::Int(v2)) => {
+                (IBinOp::Add, IExpr::Int(v1), IExpr::Int(v2)) => {
                     expr.item = IExpr::Int(v1 + v2);
                     Ok(())
                 }
-                (BinOp::Sub, IExpr::Int(v1), IExpr::Int(v2)) => {
+                (IBinOp::Sub, IExpr::Int(v1), IExpr::Int(v2)) => {
                     expr.item = IExpr::Int(v1 - v2);
                     Ok(())
                 }
-                (BinOp::Div, IExpr::Int(_), IExpr::Int(0)) => Err(ArithmeticError.add_done(expr.span, "Division by zero here")),
-                (BinOp::Div, IExpr::Int(v1), IExpr::Int(v2)) => {
+                (IBinOp::Div, IExpr::Int(_), IExpr::Int(0)) => Err(ArithmeticError.add_done(expr.span, "Division by zero here")),
+                (IBinOp::Div, IExpr::Int(v1), IExpr::Int(v2)) => {
                     expr.item = IExpr::Int(v1 / v2);
                     Ok(())
                 }
-                (BinOp::Mod, IExpr::Int(_), IExpr::Int(0)) => Err(ArithmeticError.add_done(expr.span, "Modulo by zero here")),
-                (BinOp::Mod, IExpr::Int(v1), IExpr::Int(v2)) => {
+                (IBinOp::Mod, IExpr::Int(_), IExpr::Int(0)) => Err(ArithmeticError.add_done(expr.span, "Modulo by zero here")),
+                (IBinOp::Mod, IExpr::Int(v1), IExpr::Int(v2)) => {
                     expr.item = IExpr::Int(v1 % v2);
                     Ok(())
                 }
-                (BinOp::LT, IExpr::Int(v1), IExpr::Int(v2)) => {
+                (IBinOp::LT, IExpr::Int(v1), IExpr::Int(v2)) => {
                     expr.item = IExpr::Bool(v1 < v2);
                     Ok(())
                 }
-                (BinOp::LE, IExpr::Int(v1), IExpr::Int(v2)) => {
+                (IBinOp::LE, IExpr::Int(v1), IExpr::Int(v2)) => {
                     expr.item = IExpr::Bool(v1 <= v2);
                     Ok(())
                 }
-                (BinOp::GT, IExpr::Int(v1), IExpr::Int(v2)) => {
+                (IBinOp::GT, IExpr::Int(v1), IExpr::Int(v2)) => {
                     expr.item = IExpr::Bool(v1 > v2);
                     Ok(())
                 }
-                (BinOp::GE, IExpr::Int(v1), IExpr::Int(v2)) => {
+                (IBinOp::GE, IExpr::Int(v1), IExpr::Int(v2)) => {
                     expr.item = IExpr::Bool(v1 >= v2);
                     Ok(())
                 }
-                (BinOp::And, IExpr::Bool(v1), IExpr::Bool(v2)) => {
+                (IBinOp::And, IExpr::Bool(v1), IExpr::Bool(v2)) => {
                     expr.item = IExpr::Bool(*v1 && *v2);
                     Ok(())
                 }
-                (BinOp::Or, IExpr::Bool(v1), IExpr::Bool(v2)) => {
+                (IBinOp::Or, IExpr::Bool(v1), IExpr::Bool(v2)) => {
                     expr.item = IExpr::Bool(*v1 || *v2);
                     Ok(())
                 }
-                (BinOp::EQ, IExpr::Bool(v1), IExpr::Bool(v2)) => {
+                (IBinOp::EQ, IExpr::Bool(v1), IExpr::Bool(v2)) => {
                     expr.item = IExpr::Bool(v1 == v2);
                     Ok(())
                 }
-                (BinOp::EQ, IExpr::Int(v1), IExpr::Int(v2)) => {
+                (IBinOp::EQ, IExpr::Int(v1), IExpr::Int(v2)) => {
                     expr.item = IExpr::Bool(v1 == v2);
                     Ok(())
                 }
-                (BinOp::EQ, IExpr::String(v1), IExpr::String(v2)) => {
+                (IBinOp::EQ, IExpr::String(v1), IExpr::String(v2)) => {
                     expr.item = IExpr::Bool(v1 == v2);
                     Ok(())
                 }
-                (BinOp::NE, IExpr::Bool(v1), IExpr::Bool(v2)) => {
+                (IBinOp::NE, IExpr::Bool(v1), IExpr::Bool(v2)) => {
                     expr.item = IExpr::Bool(v1 != v2);
                     Ok(())
                 }
-                (BinOp::NE, IExpr::Int(v1), IExpr::Int(v2)) => {
+                (IBinOp::NE, IExpr::Int(v1), IExpr::Int(v2)) => {
                     expr.item = IExpr::Bool(v1 != v2);
                     Ok(())
                 }
-                (BinOp::NE, IExpr::String(v1), IExpr::String(v2)) => {
+                (IBinOp::NE, IExpr::String(v1), IExpr::String(v2)) => {
                     expr.item = IExpr::Bool(v1 != v2);
                     Ok(())
                 }
@@ -161,10 +160,10 @@ impl Simplifier {
             }
             IExpr::String(_) => Ok(()),
             IExpr::Paren(e) => self.simplify_expression(e),
-            IExpr::Field { .. } => todo!(),
-            IExpr::Object(_) => todo!(),
-            IExpr::Null => todo!(),
-            IExpr::Cast {..} => todo!(),
+            IExpr::Field(Field { e, .. }) => self.simplify_expression(e),
+            IExpr::Object(_) => Ok(()),
+            IExpr::Null => Ok(()),
+            IExpr::Cast { e, .. } => self.simplify_expression(e),
         }
     }
 }

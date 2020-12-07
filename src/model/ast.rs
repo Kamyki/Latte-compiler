@@ -19,7 +19,15 @@ pub enum TopDef {
 #[derive(Debug)]
 pub struct Class {
     pub id: Id,
+    pub span: Span,
     pub fields: Vec<Arg>,
+    pub methods: Vec<Function>,
+    pub super_class: Option<Id>,
+}
+
+pub enum ClassField {
+    Method(Function),
+    Field(Arg),
 }
 
 #[derive(Debug)]
@@ -96,6 +104,7 @@ pub enum IType {
     Boolean,
     Void,
     Class(String),
+    Null,
 }
 
 impl Display for IType {
@@ -105,7 +114,8 @@ impl Display for IType {
             IType::String => "string",
             IType::Boolean => "boolean",
             IType::Void => "void",
-            IType::Class(c) => c,
+            IType::Class(c) => c.as_str(),
+            IType::Null => "null",
         })
     }
 }
@@ -137,7 +147,7 @@ pub enum IExpr {
     Bool(bool),
     Null,
     FunCall {
-        name: Id,
+        name: Target,
         args: Vec<Expr>,
     },
     String(String),
@@ -162,8 +172,10 @@ pub enum UnOp {
     BoolNegation,
 }
 
+pub type BinOp = Spanned<IBinOp>;
+
 #[derive(Debug)]
-pub enum BinOp {
+pub enum IBinOp {
     Mul,
     Div,
     Mod,

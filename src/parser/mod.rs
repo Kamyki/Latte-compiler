@@ -6,6 +6,7 @@ use crate::error_handling::{CheckerResult, FrontendError, Code};
 use crate::error_handling::FrontendError::{InvalidComment, ParsingError};
 
 
+
 fn wrap_in_block(stmt: Stmt) -> Block {
     match stmt.item {
         IStmt::Block(b) => b,
