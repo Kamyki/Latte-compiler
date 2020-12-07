@@ -27,10 +27,10 @@ fn main() {
 
     match parser::parse(&loc_map) {
         Ok(mut program) => {
-            println!("{:?}", program);
+           // println!("{:?}", program);
 
             check_semantics(&loc_map, &mut program);
-            println!("{}", loc_map.source())
+          //  println!("{}", loc_map.source())
         }
         Err(err) => print_errors(&loc_map, err.as_slice())
     }

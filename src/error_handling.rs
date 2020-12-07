@@ -30,6 +30,8 @@ pub enum FrontendError {
     CastingError,
     WrongExtend,
     CircularClassHierarchy,
+    VirtualMethod,
+    MissingMain
 }
 
 impl From<&FrontendError> for String {
@@ -51,7 +53,9 @@ impl From<&FrontendError> for String {
             FrontendError::UnknownClass => "Unknown class",
             FrontendError::CastingError => "Casting error",
             FrontendError::WrongExtend => "Class extending error",
-            FrontendError::CircularClassHierarchy => "Detected circular class hierarchy"
+            FrontendError::CircularClassHierarchy => "Detected circular class hierarchy",
+            FrontendError::VirtualMethod => "Virtual method not supported",
+            FrontendError::MissingMain => "Couldn't find main"
         }.to_string()
     }
 }
@@ -83,6 +87,11 @@ pub struct Error {
 impl Error {
     pub fn add<S: Into<String>>(mut self, span: Span, msg: S) -> Error {
         self.msgs.push((span, msg.into()));
+        self
+    }
+
+    pub fn add_over_span(mut self, span: Span) -> Error {
+        self.over_span = Some(span);
         self
     }
 

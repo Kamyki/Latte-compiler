@@ -155,7 +155,7 @@ impl<'a> FunctionAnalyser<'a> {
                                 .done())
                         }
                     } else {
-                        Err(MismatchedTypes.add(stmt.span, "Wrong type in assigment")
+                        Err(MismatchedTypes.add(e.span, "Wrong type in assigment")
                             .add(t1.span, "Should be this type")
                             .done())
                     })),
@@ -356,7 +356,6 @@ impl<'a> FunctionAnalyser<'a> {
                 }
             }
             IBinOp::NE => {
-                println!("{:?}, {:?}", l.item, r.item);
                 if l.item == r.item {
                     Ok(Type { item: IType::Boolean, span: (l.span.0, r.span.1) })
                 } else {

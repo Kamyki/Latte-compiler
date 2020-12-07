@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use crate::model::ast::{Program, Id, Type, TopDef, Span, IType, Function, Class};
-use crate::error_handling::FrontendError::{DoubleDeclaration, FunctionCall, MismatchedTypes, WrongExtend, CircularClassHierarchy};
+use crate::error_handling::FrontendError::{DoubleDeclaration, FunctionCall, MismatchedTypes, WrongExtend, CircularClassHierarchy, MissingMain};
 use crate::error_handling::{CheckerResult, AccErrors};
 
 pub struct GlobalAnalyser {
@@ -34,6 +34,7 @@ impl GlobalAnalyser {
     pub fn check(&mut self, ast: &Program) -> CheckerResult<()> {
         self.functions.extend(builtin_function());
         self.add_function_names(ast)
+            .and(self.check_main())
             .and(self.add_class_names(ast))
             .and(self.check_super())
     }
@@ -98,6 +99,17 @@ impl GlobalAnalyser {
         errors.acc()
     }
 
+    fn check_main(&self) -> CheckerResult<()> {
+        if let Some(x) = self.functions.get("main") {
+            if x.ret_type.item == IType::Int && x.args.is_empty() {
+                Ok(())
+            } else {
+                Err(MissingMain.add_done(x.span, "Wrong signature of function main"))
+            }
+        } else {
+            Err(MissingMain.add_done(OUTSIDE_SPAN, "Couldn't find main"))
+        }
+    }
 
     pub fn extends(&self, cs: &ClassSignature, t: &IType) -> bool {
         if let Some(s) = &cs.super_class {
@@ -116,10 +128,6 @@ impl GlobalAnalyser {
 fn dfs(graph: &HashMap<String, ClassSignature>, v: &String, discovered: &mut HashSet<String>, departure: &mut HashMap<String, u32>, time: &mut u32) {
     discovered.insert(v.clone());
 
-    println!("{:?}", discovered);
-    println!("{:?}", departure);
-    println!("{:?}", time);
-
     if let Some(u) = &graph[v].super_class {
         if !discovered.contains(&u.item) {
             dfs(graph, &u.item, discovered, departure, time);
@@ -130,10 +138,10 @@ fn dfs(graph: &HashMap<String, ClassSignature>, v: &String, discovered: &mut Has
 }
 
 pub struct ClassSignature {
-    type_name: Type,
+    pub type_name: Type,
     fields: HashMap<String, Type>,
-    methods: HashMap<String, FunctionSignature>,
-    super_class: Option<Id>,
+    pub methods: HashMap<String, FunctionSignature>,
+    pub super_class: Option<Id>,
 }
 
 impl From<&Class> for ClassSignature {
@@ -177,6 +185,7 @@ impl ClassSignature {
 }
 
 pub struct FunctionSignature {
+    pub span: Span,
     pub ret_type: Type,
     args: Vec<Type>,
 }
@@ -184,6 +193,7 @@ pub struct FunctionSignature {
 impl From<&Function> for FunctionSignature {
     fn from(fun: &Function) -> Self {
         Self {
+            span: fun.id.span,
             ret_type: fun.ret_type.clone(),
             args: fun.args.iter().map(|x| x.0.clone()).collect(),
         }
@@ -194,7 +204,7 @@ impl FunctionSignature {
     pub fn check_call(&self, arg_types: Vec<Type>, span: Span) -> CheckerResult<()> {
         if self.args.len() != arg_types.len() {
             return Err(FunctionCall.add(span, "Wrong number of arguments")
-                .add((self.ret_type.span.1, self.ret_type.span.1), "Function definition is here")
+                .add(self.span, "Function definition is here")
                 .done());
         }
         self.args.iter().zip(arg_types).map(|(a, t)| {
@@ -209,27 +219,34 @@ impl FunctionSignature {
     }
 }
 
+const OUTSIDE_SPAN: Span = (1, 0);
+
 fn builtin_function() -> HashMap<String, FunctionSignature> {
     let mut map = HashMap::new();
 
     map.insert("printInt".to_string(), FunctionSignature {
-        ret_type: Type { item: IType::Void, span: (0, 0) },
-        args: vec![Type { item: IType::Int, span: (0, 0) }],
+        span: OUTSIDE_SPAN,
+        ret_type: Type { item: IType::Void, span: OUTSIDE_SPAN },
+        args: vec![Type { item: IType::Int, span: OUTSIDE_SPAN }],
     });
     map.insert("printString".to_string(), FunctionSignature {
-        ret_type: Type { item: IType::Void, span: (0, 0) },
-        args: vec![Type { item: IType::String, span: (0, 0) }],
+        span: OUTSIDE_SPAN,
+        ret_type: Type { item: IType::Void, span: OUTSIDE_SPAN },
+        args: vec![Type { item: IType::String, span: OUTSIDE_SPAN }],
     });
     map.insert("error".to_string(), FunctionSignature {
-        ret_type: Type { item: IType::Void, span: (0, 0) },
+        span: OUTSIDE_SPAN,
+        ret_type: Type { item: IType::Void, span: OUTSIDE_SPAN },
         args: vec![],
     });
     map.insert("readInt".to_string(), FunctionSignature {
-        ret_type: Type { item: IType::Int, span: (0, 0) },
+        span: OUTSIDE_SPAN,
+        ret_type: Type { item: IType::Int, span: OUTSIDE_SPAN },
         args: vec![],
     });
     map.insert("readString".to_string(), FunctionSignature {
-        ret_type: Type { item: IType::String, span: (0, 0) },
+        span: OUTSIDE_SPAN,
+        ret_type: Type { item: IType::String, span: OUTSIDE_SPAN },
         args: vec![],
     });
     map
