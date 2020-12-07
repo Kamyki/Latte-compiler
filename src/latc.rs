@@ -25,14 +25,20 @@ fn main() {
     let loc_map = map_file(&args.arg_input, &s);
 
 
-    match parser::parse(&loc_map) {
-        Ok(mut program) => {
-           // println!("{:?}", program);
+    let result = parser::parse(&loc_map)
+        .and_then(|mut program| check_semantics( &mut program));
 
-            check_semantics(&loc_map, &mut program);
-          //  println!("{}", loc_map.source())
+
+    match result {
+        Ok(_) => {
+            // println!("{:?}", program);
+            //  println!("{}", loc_map.source())
+            eprintln!("OK");
         }
-        Err(err) => print_errors(&loc_map, err.as_slice())
+        Err(err) => {
+            eprintln!("ERROR");
+            print_errors(&loc_map, err.as_slice())
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::model::ast::{Program, TopDef};
 use crate::frontend::function_analyser::{FunctionAnalyser};
-use crate::error_handling::{print_errors, Code, CheckerResult, AccErrors};
+use crate::error_handling::{CheckerResult, AccErrors};
 use crate::frontend::simplifier::Simplifier;
 use crate::frontend::global_analyser::GlobalAnalyser;
 use crate::frontend::class_analyser::ClassAnalyser;
@@ -10,7 +10,7 @@ mod simplifier;
 mod global_analyser;
 mod class_analyser;
 
-pub fn check_semantics(loc_map: &Code, ast: &mut Program) {
+pub fn check_semantics(ast: &mut Program) -> CheckerResult<()> {
     let simplifier = Simplifier::new();
 
     let mut result = simplifier.simplify_expressions_in_ast(ast);
@@ -24,10 +24,7 @@ pub fn check_semantics(loc_map: &Code, ast: &mut Program) {
     result = result.and(global_result);
     result = result.and_then(|()| check_functions(&function_analyser, &ast))
         .and_then(|_| check_classes(&class_analyser, &ast));
-    match result {
-        Ok(_) => (),
-        Err(errors) => print_errors(loc_map, errors.as_slice())
-    }
+    result
 }
 
 fn check_functions(analyser: &FunctionAnalyser, ast: &Program) -> CheckerResult<()> {
