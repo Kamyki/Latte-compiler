@@ -176,8 +176,8 @@ impl AssemblerTransformer {
     pub fn transform(&mut self, graph: &ControlFlowGraph) -> Vec<Opcode> {
         let bultins: Vec<String> = graph.builtin.keys().cloned().collect();
         self.code.extend(vec![
-            Opcode::Special(format!("section .txt")),
             Opcode::Special(format!("global _start")),
+            Opcode::Special(format!("section .text")),
             Opcode::Special(format!("extern {}", bultins.join(", "))),
             Opcode::Label(format!("_start")),
             Opcode::Call(format!("main")),

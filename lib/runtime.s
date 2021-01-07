@@ -1,5 +1,5 @@
 
-section .txt
+section .text
 global printInt
 global printString
 global errpr
