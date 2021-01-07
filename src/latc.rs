@@ -1,7 +1,8 @@
 #[macro_use]
 extern crate serde_derive;
 
-use std::{env, path};
+use std::{env, io, path};
+use std::fs::File;
 use std::io::{Read, Write};
 use std::process::Command;
 use std::process::exit;
@@ -12,8 +13,6 @@ use latte::backend::transform;
 use latte::error_handling::{map_file, print_errors};
 use latte::frontend::check_semantics;
 use latte::parser;
-use std::fs::File;
-
 
 fn main() {
     let args: Args = Docopt::new(USAGE)
@@ -59,18 +58,31 @@ fn main() {
                     Ok(())
                 }) {
                 println!("Error writing output to {}: Error {}", asm_path.to_str().unwrap(), err);
-                return;
+                exit(1);
             }
 
-            Command::new("sh")
+            let o= Command::new("sh")
                 .args(&["-c", &format!("nasm -f elf64 -F dwarf -g  {}", asm_path.to_str().unwrap())])
                 .output()
                 .expect("Cannot run nasm to produce .o file");
 
-            Command::new("sh")
+            if !o.status.success() {
+                io::stderr().write_all(&o.stderr).unwrap();
+                exit(1);
+            }
+
+            let o = Command::new("sh")
                 .args(&["-c", &format!("ld {} ./lib/runtime.o -o {} -lc --dynamic-linker=/lib64/ld-linux-x86-64.so.2", asm_path.with_extension("o").to_str().unwrap(), asm_path.with_extension("").to_str().unwrap())])
                 .output()
                 .expect("Cannot run ld to produce executalbe file");
+
+
+
+            if !o.status.success() {
+                io::stderr().write_all(&o.stderr).unwrap();
+                exit(1);
+            }
+
             exit(0)
         }
         Err(err) => {
