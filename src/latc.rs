@@ -1,15 +1,19 @@
-use latte::error_handling::{print_errors, map_file};
-use std::fs::File;
-use std::{path, env};
-use std::io::Read;
-use docopt::Docopt;
-use latte::frontend::check_semantics;
-use latte::parser;
-use latte::backend::transform;
-use std::process::exit;
-
 #[macro_use]
 extern crate serde_derive;
+
+use std::{env, path};
+use std::io::{Read, Write};
+use std::process::Command;
+use std::process::exit;
+
+use docopt::Docopt;
+
+use latte::backend::transform;
+use latte::error_handling::{map_file, print_errors};
+use latte::frontend::check_semantics;
+use latte::parser;
+use std::fs::File;
+
 
 fn main() {
     let args: Args = Docopt::new(USAGE)
@@ -44,9 +48,30 @@ fn main() {
                 println!("{:?}", b.code);
             }
             println!();
-            for c in code {
-                println!("{:?}", c);
+            for c in code.iter() {
+                println!("{}", c);
             }
+
+            let asm_path = path.with_extension("s");
+            if let Err(err) = File::create(&asm_path)
+                .and_then(|mut f| {
+                    code.iter().for_each(|l| writeln!(f, "{}", l).unwrap());
+                    Ok(())
+                }) {
+                println!("Error writing output to {}: Error {}", asm_path.to_str().unwrap(), err);
+                return;
+            }
+
+            Command::new("sh")
+                .args(&["-c", &format!("nasm -f elf64 -F dwarf -g  {}", asm_path.to_str().unwrap())])
+                .output()
+                .expect("Cannot run nasm to produce .o file");
+
+            Command::new("sh")
+                .args(&["-c", &format!("ld {} ./lib/runtime.o -o {} -lc --dynamic-linker=/lib64/ld-linux-x86-64.so.2", asm_path.with_extension("o").to_str().unwrap(), asm_path.with_extension("").to_str().unwrap())])
+                .output()
+                .expect("Cannot run ld to produce executalbe file");
+            exit(0)
         }
         Err(err) => {
             eprintln!("ERROR");

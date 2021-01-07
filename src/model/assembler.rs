@@ -29,22 +29,22 @@ pub enum Register {
 impl Display for Register {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let r = match self {
-            Register::EAX => "eax",
-            Register::EBX => "ebx",
-            Register::ECX => "ecx",
-            Register::EDX => "edx",
-            Register::ESP => "esp",
-            Register::EBP => "ebp",
-            Register::ESI => "esi",
-            Register::EDI => "edi",
-            Register::R8D => "r8d",
-            Register::R9D => "r9d",
-            Register::R10D => "r10d",
-            Register::R11D => "r11d",
-            Register::R12D => "r12d",
-            Register::R13D => "r13d",
-            Register::R14D => "r14d",
-            Register::R15D => "r15d",
+            Register::EAX => "rax",
+            Register::EBX => "rbx",
+            Register::ECX => "rcx",
+            Register::EDX => "rdx",
+            Register::ESP => "rsp",
+            Register::EBP => "rbp",
+            Register::ESI => "rsi",
+            Register::EDI => "rdi",
+            Register::R8D => "r8",
+            Register::R9D => "r9",
+            Register::R10D => "r10",
+            Register::R11D => "r11",
+            Register::R12D => "r12",
+            Register::R13D => "r13",
+            Register::R14D => "r14",
+            Register::R15D => "r15",
         };
         write!(f, "{}", r)
     }
@@ -60,7 +60,7 @@ pub struct Memory {
 impl Memory {
     pub fn new(displacement: i32) -> Self {
         Self {
-            base: Some(ESP),
+            base: Some(EBP),
             offset: None,
             displacement
         }
@@ -90,7 +90,7 @@ impl Display for Target {
                     v.push(format!("{} * {}", r, s));
                 }
                 if *displacement != 0 {
-                    v.push(format!("{}", displacement));
+                    v.push(format!("{}", displacement * 8));
                 }
                 result = result.and(write!(f, "{}", v.join(" + ")));
                 result.and(write!(f, "]"))
@@ -124,17 +124,18 @@ pub enum Opcode {
     Call(Label),
     Xchng(Target, Target),
     Ret,
+    Special(String),
 }
 
 impl Display for Opcode {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Opcode::Cmp(a,b) => write!(f, "cmp {} {}", a, b),
-            Opcode::Mov(a, b) => write!(f, "mov {} {}", a, b),
-            Opcode::Add(a, b) => write!(f, "add {} {} ", a, b),
-            Opcode::Mul(a, b) => write!(f, "mul {} {}", a, b),
-            Opcode::Sub(a, b) => write!(f, "sub {} {}", a, b),
-            Opcode::Div(a, b) => write!{f, "div {} {}", a, b},
+            Opcode::Cmp(a,b) => write!(f, "cmp {}, {}", a, b),
+            Opcode::Mov(a, b) => write!(f, "mov {}, {}", a, b),
+            Opcode::Add(a, b) => write!(f, "add {}, {} ", a, b),
+            Opcode::Mul(a, b) => write!(f, "mul {}, {}", a, b),
+            Opcode::Sub(a, b) => write!(f, "sub {}, {}", a, b),
+            Opcode::Div(a, b) => write!{f, "div {}, {}", a, b},
             Opcode::Jmp(l) => write!(f, "jmp {}", l),
             Opcode::Je(l) => write!(f, "je {}", l),
             Opcode::Jne(l) => write!(f, "jne {}", l),
@@ -148,6 +149,7 @@ impl Display for Opcode {
             Opcode::Call(l) => write!(f, "call {}", l),
             Opcode::Xchng(a, b) => write!(f, "xchmg {} {}", a, b),
             Opcode::Ret => write!(f, "ret"),
+            Opcode::Special(s) => write!(f, "{}", s),
         }
     }
 }

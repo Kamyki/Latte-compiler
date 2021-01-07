@@ -17,7 +17,7 @@ pub fn transform(maps: Maps, ast: &mut Program) -> CheckerResult<(ControlFlowGra
     let mut transformer = QuadrupleCodeTransformer::new(maps);
 
     let result = transformer.transform(ast);
-    let all_registers = HashSet::from_iter(vec![EAX, EBX, ECX, EDX, EBP, ESI, EDI, R8D, R9D, R10D, R11D, R12D, R13D, R14D, R15D, ]);
+    let all_registers = HashSet::from_iter(vec![EAX, EBX, ECX, EDX, ESI, EDI, R8D, R9D, R10D, R11D, R12D, R13D, R14D, R15D, ]);
     let mut assembler_transformer = AssemblerTransformer::new(all_registers);
     let code= assembler_transformer.transform(&result);
     Ok((result, code))
