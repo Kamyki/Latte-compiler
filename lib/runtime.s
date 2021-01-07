@@ -12,13 +12,14 @@ extern printf, scanf, exit, getchar, realloc, strlen, memcpy
 
 
 printInt:
-lea rsi, [rsp + 16]
-lea rdi, [rel __int_format]
-mov rax, 0
-
 push rbp
 mov rbp, rsp
 and rsp, -16
+
+lea rsi, [rbp + 16]
+lea rdi, [rel __int_format]
+mov rax, 0
+
 call printf
 mov rsp, rbp
 pop rbp
@@ -29,7 +30,7 @@ push rbp
 mov rbp, rsp
 and rsp, -16
 
-mov rdi, [rbp + 24]
+mov rdi, [rbp + 16]
 call printf
 
 mov rsp, rbp
@@ -111,8 +112,8 @@ push rbp
 mov rbp, rsp
 and rsp, -16
 
-mov r9, [rbp + 24]
-mov r10, [rbp + 32]
+mov r9, [rbp + 16]
+mov r10, [rbp + 24]
 
 mov rdi, r9
 call strlen

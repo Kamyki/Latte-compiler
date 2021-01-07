@@ -192,10 +192,10 @@ impl AssemblerTransformer {
             let locals = graph.locals(function);
             let locals_num = locals.len();
             for (i, reg) in locals.into_iter().enumerate() {
-                self.memory.insert(reg.clone(), Target::Memory(Memory::new(-(i as i32))));
+                self.memory.insert(reg.clone(), Target::Memory(Memory::new(-(1 + i  as i32))));
             }
             for (i, reg) in args.iter().enumerate() {
-                self.memory.insert(reg.clone(), Target::Memory(Memory::new((i + 3) as i32)));
+                self.memory.insert(reg.clone(), Target::Memory(Memory::new((i + 2) as i32)));
             }
 
             self.code.push(Opcode::Label(function.clone()));
