@@ -16,7 +16,7 @@ push rbp
 mov rbp, rsp
 and rsp, -16
 
-lea rsi, [rbp + 16]
+mov rsi, [rbp + 16]
 lea rdi, [rel __int_format]
 mov rax, 0
 
