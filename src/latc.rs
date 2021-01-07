@@ -13,7 +13,7 @@ use latte::backend::transform;
 use latte::error_handling::{map_file, print_errors};
 use latte::frontend::check_semantics;
 use latte::parser;
-
+§
 fn main() {
     let args: Args = Docopt::new(USAGE)
         .and_then(|d| d.argv(env::args()).deserialize())

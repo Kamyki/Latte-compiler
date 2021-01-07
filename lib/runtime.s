@@ -12,8 +12,8 @@ extern printf, scanf, exit, getchar, realloc, strlen, memcpy
 
 
 printInt:
-mov rsi, [rsp + 16]
-mov rdi, [rel __int_format]
+lea rsi, [rsp + 16]
+lea rdi, [rel __int_format]
 mov rax, 0
 
 push rbp
@@ -143,7 +143,7 @@ mov rdx, r12
 call memcpy
 
 mov rax, r13
-mov [rax], 0
+mov byte [rax], 0
 
 mov rax, r14
 mov rsp, rbp
