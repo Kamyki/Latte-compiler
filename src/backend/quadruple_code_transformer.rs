@@ -14,6 +14,7 @@ pub enum QuadrupleCodeTransformer<'a> {
         env: HashMap<String, Reg>,
         strings: HashMap<String, u32>,
         functions: HashMap<Label, FunctionSignature>,
+        num: u32,
     },
     Frame {
         parent: &'a QuadrupleCodeTransformer<'a>,
@@ -27,15 +28,25 @@ pub enum QuadrupleCodeTransformer<'a> {
 
 impl<'a> QuadrupleCodeTransformer<'a> {
     fn new_label(&mut self) -> Label {
-        match self {
+        let mut label = match self {
             QuadrupleCodeTransformer::Root { label_num, .. } => {
                 *label_num += 1;
-                format!("_0_{}", label_num)
+                format!("_{}", label_num)
             }
             QuadrupleCodeTransformer::Frame { label_num, num, current_name, .. } => {
                 *label_num += 1;
-                format!("_{}_{}_{}", current_name, num, label_num)
+                format!("_{}_{}_{}", current_name, label_num, num)
             }
+        };
+        let mut a = &*self;
+        while let QuadrupleCodeTransformer::Frame { num, parent, .. } = a {
+            label = format!("{}_{}", label, num);
+            a = parent;
+        }
+        if let QuadrupleCodeTransformer::Root { num, ..} = a {
+            format!("{}_{}", label, num)
+        } else {
+            label
         }
     }
 
@@ -80,15 +91,29 @@ impl<'a> QuadrupleCodeTransformer<'a> {
             env: HashMap::new(),
             strings: maps.1,
             functions: maps.0,
+            num: 0,
         }
     }
 
     pub fn new_frame(parent: &'a QuadrupleCodeTransformer<'a>, new_name: Option<String>) -> Self {
-        let (root, num, current_name) = match parent {
-            QuadrupleCodeTransformer::Root { .. } => (parent, 1 as u32, new_name.unwrap()),
-            QuadrupleCodeTransformer::Frame { root, num, current_name, .. } => (root.clone(), num + 1, new_name.unwrap_or(current_name.clone())),
+        let (root, current_name) = match parent {
+            QuadrupleCodeTransformer::Root { .. } => {
+                //*num+=1;
+                (parent, new_name.unwrap())
+            }
+            QuadrupleCodeTransformer::Frame { root, current_name, .. } => {
+                //*num+=1;
+                (*root, new_name.unwrap_or(current_name.clone()))
+            }
         };
-        QuadrupleCodeTransformer::Frame { parent, root, env: HashMap::new(), num, label_num: 0, current_name }
+        QuadrupleCodeTransformer::Frame { parent, root, env: HashMap::new(), num: 0, label_num: 0, current_name }
+    }
+
+    fn inc_num(&mut self) {
+        match self {
+            QuadrupleCodeTransformer::Root { num, .. } => *num += 1,
+            QuadrupleCodeTransformer::Frame { num, .. } => *num += 1,
+        }
     }
 
     pub fn transform(&mut self, ast: &Program) -> ControlFlowGraph {
@@ -109,6 +134,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
     }
 
     fn transform_function(&mut self, graph: &mut ControlFlowGraph, f: &Function) {
+        self.inc_num();
         let mut function_transformer = QuadrupleCodeTransformer::new_frame(self, Some(f.id.item.clone()));
         let mut arg_reg = vec![];
         for arg in &f.args {
@@ -123,6 +149,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
     }
 
     fn transform_block(&mut self, graph: &mut ControlFlowGraph, b: &Block, out: Option<Label>) -> Label {
+        self.inc_num();
         let mut block_transformer = QuadrupleCodeTransformer::new_frame(self, None);
         let block_label = block_transformer.new_label();
         graph.begin_block(block_label.clone());

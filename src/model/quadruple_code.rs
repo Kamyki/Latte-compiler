@@ -37,6 +37,10 @@ impl ControlFlowGraph {
             if let Instr::Jump(l) = &code {
                 b.jumps.insert(l.clone());
             }
+            if let Instr::If(_, _, _, t, f) = &code {
+                b.jumps.insert(t.clone());
+                b.jumps.insert(f.clone());
+            }
             b.code.push(code);
         }
     }
@@ -87,6 +91,7 @@ impl<'a> Iterator for Iter<'a> {
             if !self.visited.contains(l.as_str()) {
                 let block = self.blocks.get(l.as_str()).unwrap();
                 self.to_visit.extend(block.jumps.clone());
+                self.visited.insert(l.clone());
                 return Some((l, block))
             }
         }

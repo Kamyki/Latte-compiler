@@ -87,12 +87,14 @@ impl Display for Target {
                     v.push(format!("{}", r))
                 }
                 if let Some((r, s)) = offset {
-                    v.push(format!("{} * {}", r, s));
+                    v.push(format!("+ {} * {}", r, s));
                 }
-                if *displacement != 0 {
-                    v.push(format!("{}", displacement * 8));
+                if *displacement > 0 {
+                    v.push(format!("+ {}", displacement * 8));
+                } else if *displacement < 0 {
+                    v.push(format!("- {}", -displacement * 8));
                 }
-                result = result.and(write!(f, "{}", v.join(" + ")));
+                result = result.and(write!(f, "{}", v.join(" ")));
                 result.and(write!(f, "]"))
             }
             Target::Label(l) => write!(f, "{}", l)
