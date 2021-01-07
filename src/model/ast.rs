@@ -97,7 +97,7 @@ pub enum Target {
 
 pub type Type = Spanned<IType>;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum IType {
     Int,
     String,
@@ -174,7 +174,7 @@ pub enum UnOp {
 
 pub type BinOp = Spanned<IBinOp>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IBinOp {
     Mul,
     Div,

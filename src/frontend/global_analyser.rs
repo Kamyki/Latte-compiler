@@ -6,11 +6,12 @@ use crate::error_handling::{CheckerResult, AccErrors};
 pub struct GlobalAnalyser {
     pub functions: HashMap<String, FunctionSignature>,
     pub classes: HashMap<String, ClassSignature>,
+    pub strings: HashMap<String, u32>,
 }
 
 impl GlobalAnalyser {
     pub fn new() -> Self {
-        Self { functions: HashMap::new(), classes: HashMap::new() }
+        Self { functions: HashMap::new(), classes: HashMap::new(), strings: HashMap::new() }
     }
 
     fn insert_function(&mut self, id: Id, fs: FunctionSignature) -> CheckerResult<()> {
@@ -137,6 +138,7 @@ fn dfs(graph: &HashMap<String, ClassSignature>, v: &String, discovered: &mut Has
     *time += 1;
 }
 
+#[derive(Debug)]
 pub struct ClassSignature {
     pub type_name: Type,
     fields: HashMap<String, Type>,
@@ -184,10 +186,11 @@ impl ClassSignature {
     }
 }
 
+#[derive(Debug)]
 pub struct FunctionSignature {
     pub span: Span,
     pub ret_type: Type,
-    args: Vec<Type>,
+    pub args: Vec<Type>,
 }
 
 impl From<&Function> for FunctionSignature {

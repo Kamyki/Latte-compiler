@@ -5,6 +5,8 @@ use std::io::Read;
 use docopt::Docopt;
 use latte::frontend::check_semantics;
 use latte::parser;
+use latte::backend::transform;
+use std::process::exit;
 
 #[macro_use]
 extern crate serde_derive;
@@ -26,18 +28,30 @@ fn main() {
 
 
     let result = parser::parse(&loc_map)
-        .and_then(|mut program| check_semantics( &mut program));
+        .and_then(|mut program| check_semantics( &mut program)
+            .and_then(|maps| transform(maps, &mut program)));
 
 
     match result {
-        Ok(_) => {
-            // println!("{:?}", program);
-            //  println!("{}", loc_map.source())
+        Ok((graph, code)) => {
             eprintln!("OK");
+            println!("functions: {:?}", graph.functions);
+            println!("open_blocks: {:?}", graph.current_block);
+
+            for (l, b) in graph.iter() {
+                println!("{:?}", l);
+                println!("jumps: {:?}", b.jumps);
+                println!("{:?}", b.code);
+            }
+            println!();
+            for c in code {
+                println!("{:?}", c);
+            }
         }
         Err(err) => {
             eprintln!("ERROR");
-            print_errors(&loc_map, err.as_slice())
+            print_errors(&loc_map, err.as_slice());
+            exit(1)
         }
     }
 }
