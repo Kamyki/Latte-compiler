@@ -287,20 +287,25 @@ impl<'a> QuadrupleCodeTransformer<'a> {
     fn transform_expr(&mut self, graph: &mut ControlFlowGraph, expr: &Expr, cond: Option<(&Label, &Label)>) -> Value {
         let reg = match &expr.item {
             IExpr::Unary { o, e } => {
-                let v = self.transform_expr(graph, e, cond);
                 match o {
                     Unary::IntNegation => {
+                        let v = self.transform_expr(graph, e, cond);
                         let reg = Reg::new(IType::Int, self.new_label());
                         graph.push(Instr::Asg1(reg.clone(), UnOp::IntNeg, v));
                         Value::Register(reg)
                     }
                     Unary::BoolNegation => {
-                        let reg = Reg::new(IType::Boolean, self.new_label());
                         match cond {
-                            None => graph.push(Instr::Asg1(reg.clone(), UnOp::BoolNeg, v)),
-                            Some((t, f)) => graph.push(Instr::If(v, EQ, Value::Bool(false), t.clone(), f.clone())),
+                            None => {
+                                let reg = Reg::new(IType::Boolean, self.new_label());
+                                let v = self.transform_expr(graph, e, cond);
+                                graph.push(Instr::Asg1(reg.clone(), UnOp::BoolNeg, v));
+                                Value::Register(reg)
+                            },
+                            Some((t, f)) => {
+                                self.transform_expr(graph, e, Some((f, t)))
+                            },
                         }
-                        Value::Register(reg)
                     }
                 }
             }
