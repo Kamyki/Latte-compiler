@@ -5,7 +5,7 @@ global printString
 global errpr
 global readInt
 global readString
-global concatString
+global _concatString
 
 extern printf, scanf, exit, getchar, realloc, strlen, memcpy
 
