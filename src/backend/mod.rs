@@ -16,9 +16,29 @@ mod assembler_transformer;
 pub fn transform(maps: Maps, ast: &mut Program) -> CheckerResult<(ControlFlowGraph, Vec<Opcode>)> {
     let mut transformer = QuadrupleCodeTransformer::new(maps);
 
-    let result = transformer.transform(ast);
+    println!("{:?}", ast);
+    let graph = transformer.transform(ast);
+
+    println!("functions: {:?}", graph.functions);
+    println!("open_blocks: {:?}", graph.current_block);
+
+    for (l, b) in graph.iter() {
+        println!("{:?}", l);
+        println!("jumps: {:?}", b.jumps);
+        for i in &b.code {
+            println!("{:?}", i);
+        }
+    }
+
     let all_registers = HashSet::from_iter(vec![EAX, EBX, ECX, EDX, ESI, EDI, R8D, R9D, R10D, R11D, R12D, R13D, R14D, R15D, ]);
     let mut assembler_transformer = AssemblerTransformer::new(all_registers);
-    let code= assembler_transformer.transform(&result);
-    Ok((result, code))
+    let code= assembler_transformer.transform(&graph);
+
+
+    println!();
+    for c in code.iter() {
+        println!("{}", c);
+    }
+
+    Ok((graph, code))
 }

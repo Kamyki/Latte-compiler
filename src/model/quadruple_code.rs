@@ -81,13 +81,19 @@ impl ControlFlowGraph {
 pub struct Iter<'a> {
     visited: HashSet<Label>,
     to_visit: VecDeque<Label>,
-    blocks: &'a HashMap<Label, SimpleBlock>
+    blocks: &'a HashMap<Label, SimpleBlock>,
+    starts: Vec<Label>,
 }
 
 impl<'a> Iterator for Iter<'a> {
     type Item =  (Label, &'a SimpleBlock);
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.to_visit.is_empty() {
+            if let Some(f) = self.starts.pop() {
+                self.to_visit.push_back(f);
+            }
+        }
 
         while let Some(l) =  self.to_visit.pop_front() {
             if !self.visited.contains(l.as_str()) {
@@ -95,6 +101,8 @@ impl<'a> Iterator for Iter<'a> {
                 self.to_visit.extend(block.jumps.clone());
                 self.visited.insert(l.clone());
                 return Some((l, block))
+            } else {
+                return self.next()
             }
         }
         None
@@ -107,12 +115,12 @@ impl<'a> ControlFlowGraph {
     pub fn iter(&'a self) -> Iter<'a> {
         let functions = self.functions.values().map(|f| f.0.clone());
 
-        Iter { visited: HashSet::new(), to_visit: VecDeque::from_iter(functions), blocks: &self.blocks }
+        Iter { visited: HashSet::new(), to_visit: VecDeque::new(), starts: Vec::from_iter(functions), blocks: &self.blocks }
     }
 
     pub fn iter_fun(&'a self, fun: &str) -> Iter<'a> {
         let function = self.functions[fun].0.clone();
-        Iter { visited: HashSet::new(), to_visit: VecDeque::from(vec![function]), blocks: &self.blocks }
+        Iter { visited: HashSet::new(), to_visit: VecDeque::new(), starts: vec![function], blocks: &self.blocks }
     }
 }
 
@@ -174,6 +182,7 @@ pub enum BinOp {
     Div,
     Mod,
     Sub,
+
 }
 
 impl From<IBinOp> for BinOp {

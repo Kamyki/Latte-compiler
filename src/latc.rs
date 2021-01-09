@@ -36,20 +36,8 @@ fn main() {
 
 
     match result {
-        Ok((graph, code)) => {
+        Ok((_, code)) => {
             eprintln!("OK");
-            println!("functions: {:?}", graph.functions);
-            println!("open_blocks: {:?}", graph.current_block);
-
-            for (l, b) in graph.iter() {
-                println!("{:?}", l);
-                println!("jumps: {:?}", b.jumps);
-                println!("{:?}", b.code);
-            }
-            println!();
-            for c in code.iter() {
-                println!("{}", c);
-            }
 
             let asm_path = path.with_extension("s");
             if let Err(err) = File::create(&asm_path)

@@ -1,4 +1,4 @@
-use crate::model::quadruple_code::{ControlFlowGraph, SimpleBlock, Instr, Value, RelOp, Reg, Label, BinOp};
+use crate::model::quadruple_code::{ControlFlowGraph, SimpleBlock, Instr, Value, RelOp, Reg, Label, BinOp, UnOp};
 use crate::model::assembler::{Opcode, Target, Register, Memory};
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
@@ -294,6 +294,7 @@ impl AssemblerTransformer {
                         }
                         (BinOp::Add, _) => {
                             let a_target = self.get_reg_target(a);
+                            self.dump_to_memory(&a_target);
                             let b_target = self.get_target(b);
                             self.code.push(Opcode::Add(a_target.clone(), b_target));
                             self.free_target(a_target.clone());
@@ -301,6 +302,7 @@ impl AssemblerTransformer {
                         }
                         (BinOp::Mul, _) => {
                             let a_target = self.get_reg_target(a);
+                            self.dump_to_memory(&a_target);
                             let b_target = self.get_target(b);
                             self.code.push(Opcode::Mul(a_target.clone(), b_target));
                             self.free_target(a_target.clone());
@@ -308,6 +310,7 @@ impl AssemblerTransformer {
                         }
                         (BinOp::Div, _) => {
                             let a_target = self.get_reg_target(a);
+                            self.dump_to_memory(&a_target);
                             let eax_target = Target::Reg(EAX);
                             if a_target != eax_target {
                                 self.make_reg_free(eax_target.clone());
@@ -326,6 +329,7 @@ impl AssemblerTransformer {
                         }
                         (BinOp::Mod, _) => {
                             let a_target = self.get_reg_target(a);
+                            self.dump_to_memory(&a_target);
                             let eax_target = Target::Reg(EAX);
                             if a_target != eax_target {
                                 self.make_reg_free(eax_target.clone());
@@ -344,6 +348,7 @@ impl AssemblerTransformer {
                         }
                         (BinOp::Sub, _) => {
                             let a_target = self.get_reg_target(a);
+                            self.dump_to_memory(&a_target);
                             let b_target = self.get_target(b);
                             self.code.push(Opcode::Sub(a_target.clone(), b_target));
                             self.free_target(a_target.clone());
@@ -351,7 +356,42 @@ impl AssemblerTransformer {
                         }
                     }
                 }
-                Instr::Asg1(_, _, _) => todo!(),
+                Instr::Asg1(r, o, v) => {
+                    match o {
+                        UnOp::IntNeg => {
+                            let v_target = self.get_target(v);
+                            let f = self.get_free_register();
+                            let f_target = Target::Reg(f);
+                            self.code.push(Opcode::Mov(f_target.clone(), v_target));
+                            self.code.push(Opcode::Neg(f_target.clone()));
+                            self.put_into_target(r, &f_target);
+                        }
+                        UnOp::BoolNeg => {
+                            let v_target = self.get_target(v);
+                            let f = self.get_free_register();
+                            let f_target = Target::Reg(f);
+                            self.code.push(Opcode::Mov(f_target.clone(), v_target));
+                            self.code.push(Opcode::Not(f_target.clone()));
+                            self.put_into_target(r, &f_target);
+                        }
+                        UnOp::Incr => {
+                            let v_target = self.get_target(v);
+                            let f = self.get_free_register();
+                            let f_target = Target::Reg(f);
+                            self.code.push(Opcode::Mov(f_target.clone(), v_target));
+                            self.code.push(Opcode::Add(f_target.clone(), Target::Imm(1)));
+                            self.put_into_target(r, &f_target);
+                        }
+                        UnOp::Decr => {
+                            let v_target = self.get_target(v);
+                            let f = self.get_free_register();
+                            let f_target = Target::Reg(f);
+                            self.code.push(Opcode::Mov(f_target.clone(), v_target));
+                            self.code.push(Opcode::Sub(f_target.clone(), Target::Imm(1)));
+                            self.put_into_target(r, &f_target);
+                        }
+                    }
+                },
                 Instr::Copy(t, v) => {
                     let f_reg = match self.to_register.get(t).cloned() {
                         None => {

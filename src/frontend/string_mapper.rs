@@ -23,6 +23,7 @@ impl StringMapper {
 
 impl StringMapper {
     pub fn add_strings(&mut self, ast: &Program) -> CheckerResult<()> {
+        self.insert_string("".to_string());
         ast.defs.iter()
             .for_each(|top_def| match top_def {
                 TopDef::Function(Function { block, .. }) => self.add_block(block),
