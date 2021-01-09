@@ -54,7 +54,8 @@ impl ControlFlowGraph {
     }
 
     pub fn close_block(&mut self) {
-        if let Some((l,  b)) = self.current_block.pop() {
+        if let Some((l, mut b)) = self.current_block.pop() {
+            b.live();
             self.blocks.insert(l.clone(), b);
 
         }
@@ -128,6 +129,11 @@ impl<'a> ControlFlowGraph {
 pub struct SimpleBlock {
     pub code: Vec<Instr>,
     pub jumps: HashSet<Label>,
+    pub ins: HashSet<Reg>,
+    pub kill: HashSet<Reg>,
+    pub out: HashSet<Reg>,
+    pub used: HashSet<Reg>,
+
 }
 
 impl SimpleBlock {
@@ -135,7 +141,74 @@ impl SimpleBlock {
         Self {
             code: Vec::new(),
             jumps: HashSet::new(),
+            ins: HashSet::new(),
+            kill: HashSet::new(),
+            out: HashSet::new(),
+            used: HashSet::new(),
         }
+    }
+
+    pub fn live(&mut self) {
+        for i in self.code.iter().rev() {
+            self.out = self.ins.clone();
+            match i{
+                Instr::Asg2(r, a, _, b) => {
+                    self.kill.insert(r.clone());
+                    match a {
+                        Value::Register(r_v) => self.used.insert(r_v.clone()),
+                        _ => false,
+                    };
+                    match b {
+                        Value::Register(r_v) => self.used.insert(r_v.clone()),
+                        _ => false,
+                    };
+                },
+                Instr::Asg1(r, _, a) => {
+                    self.kill.insert(r.clone());
+                    match a {
+                        Value::Register(r_v) => self.used.insert(r_v.clone()),
+                        _ => false,
+                    };
+                },
+                Instr::Copy(r, b) => {
+                    self.kill.insert(r.clone());
+                    match b {
+                        Value::Register(r_v) => self.used.insert(r_v.clone()),
+                        _ => false,
+                    };
+                },
+                Instr::Jump(_) => { },
+                Instr::If(a, _, b, _, _) => {
+                    match a {
+                        Value::Register(r_v) => self.used.insert(r_v.clone()),
+                        _ => false,
+                    };
+                    match b {
+                        Value::Register(r_v) => self.used.insert(r_v.clone()),
+                        _ => false,
+                    };
+                },
+                Instr::Call(r, _, params) => {
+                    self.kill.insert(r.clone());
+                    for v in params.iter() {
+                        match v {
+                            Value::Register(r_v) => self.used.insert(r_v.clone()),
+                            _ => false,
+                        };
+                    };
+                },
+                Instr::Return(v) => {
+                    match v {
+                        Value::Register(r_v) => self.used.insert(r_v.clone()),
+                        _ => false,
+                    };
+                },
+                Instr::VReturn => { },
+            }
+            self.ins = HashSet::from_iter(self.out.difference(&self.kill).cloned());
+            self.ins.extend(self.used.clone());
+        }
+        self.out = self.ins.clone();
     }
 }
 

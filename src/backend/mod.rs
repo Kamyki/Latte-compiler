@@ -25,6 +25,11 @@ pub fn transform(maps: Maps, ast: &mut Program) -> CheckerResult<(ControlFlowGra
     for (l, b) in graph.iter() {
         println!("{:?}", l);
         println!("jumps: {:?}", b.jumps);
+        println!("ins: {:?}", b.ins);
+        println!("kill: {:?}", b.kill);
+        println!("used: {:?}", b.used);
+        println!("outs: {:?}", b.out);
+
         for i in &b.code {
             println!("{:?}", i);
         }

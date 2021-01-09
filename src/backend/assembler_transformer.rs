@@ -67,6 +67,13 @@ impl AssemblerTransformer {
     fn dump_to_memory(&mut self, reg: &Target) {
         if !self.is_free(reg) {
             if let Some(var) = self.to_value[reg].iter().next().cloned() {
+                let mem = self.memory[&var].clone();
+                match self.to_memory.get(&var) {
+                    Some(m) if Target::Memory(m.clone()) == mem => {}
+                    _ => {
+                        self.move_value(reg.clone(), self.memory[&var].clone());
+                    }
+                }
                 if let None = self.to_memory.get(&var) {
                     self.move_value(reg.clone(), self.memory[&var].clone());
                 }
@@ -235,11 +242,17 @@ impl AssemblerTransformer {
 
 
             for (label, block) in graph.iter_fun(function) {
-                let all_regs = self.all_registers.clone();
-                for reg in all_regs.into_iter() {
-                    self.free_target(Target::Reg(reg));
+                // let all_regs = self.all_registers.clone();
+                // for reg in all_regs.into_iter() {
+                //     self.free_target(Target::Reg(reg));
+                // }
+                self.to_memory.clear();
+                self.to_value.clear();
+                self.to_register.clear();
+                for reg in block.ins.iter() {
+                    let m = self.memory[reg].clone();
+                    self.put_into_target(reg, &m);
                 }
-
                 self.code.push(Opcode::Label(label));
                 self.transform_block(block)
             }
