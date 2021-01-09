@@ -153,4 +153,4 @@ pop rbp
 ret
 
 __int_format db '%ld',0x0a,0
-__string_format db '%s' 0x0a,0
+__string_format db '%s',0x0a,0
