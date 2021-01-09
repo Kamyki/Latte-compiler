@@ -17,7 +17,7 @@ pub struct AssemblerTransformer {
     last_usage: u32,
     all_registers: HashSet<Register>,
     end_label: Option<Label>,
-    strings: HashMap<u32, Label>
+    strings: HashMap<u32, Label>,
 }
 
 impl AssemblerTransformer {
@@ -99,11 +99,8 @@ impl AssemblerTransformer {
                 (Target::Memory(m), Some(mg), None) if m == mg => {
                     let var_mem = self.memory[var].clone();
                     self.move_value(to.clone(), var_mem.clone());
-
-
                 }
-                (Target::Memory(m), Some(mg), _) if m == mg => {
-                }
+                (Target::Memory(m), Some(mg), _) if m == mg => {}
                 _ => panic!("invalid target")
             }
         }
@@ -115,7 +112,7 @@ impl AssemblerTransformer {
                 self.code.push(Opcode::Mov(to.clone(), Target::Reg(EBX)));
                 self.code.push(Opcode::Pop(EBX));
             }
-            (_, _) =>  self.code.push(Opcode::Mov(to.clone(), from.clone())),
+            (_, _) => self.code.push(Opcode::Mov(to.clone(), from.clone())),
         }
         let vars: Vec<Reg> = self.to_value.entry(from).or_default().iter().cloned().collect();
         for var in vars.iter() {
@@ -162,6 +159,15 @@ impl AssemblerTransformer {
             res.push(var)
         }
         res
+    }
+
+    fn free_value(&mut self, reg: &Reg) {
+        if let Some(t) = self.to_register.remove(reg) {
+            self.to_value.entry(Target::Reg(t)).or_default().remove(reg);
+        }
+        if let Some(t) = self.to_memory.remove(reg) {
+            self.to_value.entry(Target::Memory(t)).or_default().remove(reg);
+        }
     }
 
     // get target with location of v
@@ -227,7 +233,7 @@ impl AssemblerTransformer {
             let locals = graph.locals(function);
             let locals_num = locals.len();
             for (i, reg) in locals.into_iter().enumerate() {
-                self.memory.insert(reg.clone(), Target::Memory(Memory::new(-(1 + i  as i32))));
+                self.memory.insert(reg.clone(), Target::Memory(Memory::new(-(1 + i as i32))));
             }
             for (i, reg) in args.iter().enumerate() {
                 self.memory.insert(reg.clone(), Target::Memory(Memory::new((i + 2) as i32)));
@@ -304,7 +310,6 @@ impl AssemblerTransformer {
                             self.code.push(Opcode::Add(Target::Reg(ESP), Target::Imm(8 * 2 as i32)));
 
                             self.put_into_target(ret, &Target::Reg(EAX))
-
                         }
                         (BinOp::Add, _) => {
                             let a_target = self.get_reg_target(a);
@@ -312,6 +317,7 @@ impl AssemblerTransformer {
                             let b_target = self.get_target(b);
                             self.code.push(Opcode::Add(a_target.clone(), b_target));
                             self.free_target(a_target.clone());
+                            self.free_value(ret);
                             self.put_into_target(ret, &a_target);
                         }
                         (BinOp::Mul, _) => {
@@ -320,6 +326,7 @@ impl AssemblerTransformer {
                             let b_target = self.get_target(b);
                             self.code.push(Opcode::Mul(a_target.clone(), b_target));
                             self.free_target(a_target.clone());
+                            self.free_value(ret);
                             self.put_into_target(ret, &a_target);
                         }
                         (BinOp::Div, _) => {
@@ -339,6 +346,7 @@ impl AssemblerTransformer {
 
                             self.free_target(eax_target.clone());
                             self.free_target(edx_target);
+                            self.free_value(ret);
                             self.put_into_target(ret, &eax_target);
                         }
                         (BinOp::Mod, _) => {
@@ -358,6 +366,7 @@ impl AssemblerTransformer {
 
                             self.free_target(eax_target.clone());
                             self.free_target(edx_target.clone());
+                            self.free_value(ret);
                             self.put_into_target(ret, &edx_target);
                         }
                         (BinOp::Sub, _) => {
@@ -366,6 +375,7 @@ impl AssemblerTransformer {
                             let b_target = self.get_target(b);
                             self.code.push(Opcode::Sub(a_target.clone(), b_target));
                             self.free_target(a_target.clone());
+                            self.free_value(ret);
                             self.put_into_target(ret, &a_target);
                         }
                     }
@@ -378,6 +388,7 @@ impl AssemblerTransformer {
                             let f_target = Target::Reg(f);
                             self.code.push(Opcode::Mov(f_target.clone(), v_target));
                             self.code.push(Opcode::Neg(f_target.clone()));
+                            self.free_value(r);
                             self.put_into_target(r, &f_target);
                         }
                         UnOp::BoolNeg => {
@@ -386,6 +397,7 @@ impl AssemblerTransformer {
                             let f_target = Target::Reg(f);
                             self.code.push(Opcode::Mov(f_target.clone(), v_target));
                             self.code.push(Opcode::Not(f_target.clone()));
+                            self.free_value(r);
                             self.put_into_target(r, &f_target);
                         }
                         UnOp::Incr => {
@@ -394,6 +406,7 @@ impl AssemblerTransformer {
                             let f_target = Target::Reg(f);
                             self.code.push(Opcode::Mov(f_target.clone(), v_target));
                             self.code.push(Opcode::Add(f_target.clone(), Target::Imm(1)));
+                            self.free_value(r);
                             self.put_into_target(r, &f_target);
                         }
                         UnOp::Decr => {
@@ -402,49 +415,55 @@ impl AssemblerTransformer {
                             let f_target = Target::Reg(f);
                             self.code.push(Opcode::Mov(f_target.clone(), v_target));
                             self.code.push(Opcode::Sub(f_target.clone(), Target::Imm(1)));
+                            self.free_value(r);
                             self.put_into_target(r, &f_target);
                         }
                     }
-                },
+                }
                 Instr::Copy(t, v) => {
-                    let f_reg = match self.to_register.get(t).cloned() {
-                        None => {
-                            self.get_free_register()
-                        }
-                        Some(r) => r
-                    };
-                    if let Some(m) = self.to_memory.remove(t) {
-                        self.to_value.entry(Target::Memory(m)).or_default().remove(t);
-                    }
-                    if let Some(r) = self.to_register.remove(t) {
-                        self.to_value.entry(Target::Reg(r)).or_default().remove(t);
-                    }
-
-                    let v_target = Target::Reg(f_reg);
-                    self.put_into_target(t, &v_target);
                     match v {
                         Value::Register(r) => {
                             match (self.to_register.get(r).cloned(), self.to_memory.get(r).cloned()) {
                                 (None, None) => {
                                     panic!("Where is source of assignment?")
-                                },
+                                }
                                 (None, Some(mem)) => {
+                                    let f_reg = self.get_free_register();
+                                    let v_target = Target::Reg(f_reg);
+                                    self.free_value(t);
+                                    self.put_into_target(t, &v_target);
                                     self.put_into_target(r, &v_target);
                                     self.code.push(Opcode::Mov(v_target, Target::Memory(mem.clone())));
                                 }
 
                                 (Some(reg), _) => {
-                                    self.put_into_target(r, &v_target);
-                                    self.code.push(Opcode::Mov(v_target, Target::Reg(reg.clone())));
+                                    self.free_value(t);
+                                    self.put_into_target(t, &Target::Reg(reg));
                                 }
                             }
                         }
-                        Value::Int(i) => self.code.push(Opcode::Mov(v_target, Target::Imm(*i))),
+                        Value::Int(i) => {
+                            let f_reg = self.get_free_register();
+                            let v_target = Target::Reg(f_reg);
+                            self.free_value(t);
+                            self.put_into_target(t, &v_target);
+                            self.code.push(Opcode::Mov(v_target, Target::Imm(*i)))
+                        }
                         Value::String(s) => {
+                            let f_reg = self.get_free_register();
+                            let v_target = Target::Reg(f_reg);
+                            self.free_value(t);
+                            self.put_into_target(t, &v_target);
                             let s = self.alloc_string(s);
                             self.code.push(Opcode::Mov(v_target, Target::Label(s)));
                         }
-                        Value::Bool(b) => self.code.push(Opcode::Mov(v_target, Target::Imm(if *b { 1 } else { 0 }))),
+                        Value::Bool(b) => {
+                            let f_reg = self.get_free_register();
+                            let v_target = Target::Reg(f_reg);
+                            self.free_value(t);
+                            self.put_into_target(t, &v_target);
+                            self.code.push(Opcode::Mov(v_target, Target::Imm(if *b { 1 } else { 0 })))
+                        }
                     }
                 }
                 Instr::Jump(l) => {
@@ -453,7 +472,7 @@ impl AssemblerTransformer {
                         self.dump_to_memory(&Target::Reg(reg));
                     }
                     self.code.push(Opcode::Jmp(l.clone()))
-                },
+                }
                 Instr::If(x, o, y, t, f) => {
                     let all_regs = self.all_registers.clone();
                     for reg in all_regs.into_iter() {
@@ -488,7 +507,8 @@ impl AssemblerTransformer {
                     for reg in all_regs.into_iter() {
                         self.make_reg_free(Target::Reg(reg));
                     }
-                    if ret.itype != IType::Void  {
+                    if ret.itype != IType::Void {
+                        self.free_value(ret);
                         self.put_into_target(ret, &Target::Reg(EAX))
                     }
                 }
@@ -518,7 +538,7 @@ impl AssemblerTransformer {
                             let ret_target = Target::Reg(EAX);
                             self.make_reg_free(ret_target.clone());
                             self.code.push(Opcode::Mov(ret_target, Target::Imm(*i)))
-                        },
+                        }
                         Value::String(s) => {
                             let ret_target = Target::Reg(EAX);
                             self.make_reg_free(ret_target.clone());
@@ -529,7 +549,7 @@ impl AssemblerTransformer {
                             let ret_target = Target::Reg(EAX);
                             self.make_reg_free(ret_target.clone());
                             self.code.push(Opcode::Mov(ret_target, Target::Imm(if *b { 1 } else { 0 })))
-                        },
+                        }
                     }
                     self.code.push(Opcode::Jmp(self.get_final_label()));
                 }
@@ -541,7 +561,7 @@ impl AssemblerTransformer {
     }
 
     fn alloc_string(&mut self, string_id: &u32) -> Label {
-        self.strings.entry(*string_id).or_insert(format!("__string_{}", string_id) ).clone()
+        self.strings.entry(*string_id).or_insert(format!("__string_{}", string_id)).clone()
     }
 
     fn get_final_label(&self) -> Label {
