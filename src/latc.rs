@@ -74,7 +74,7 @@ fn main() {
             let o = Command::new("sh")
                 .args(&["-c", &format!("ld {} ./lib/runtime.o -o {} -lc --dynamic-linker=/lib64/ld-linux-x86-64.so.2", asm_path.with_extension("o").to_str().unwrap(), asm_path.with_extension("").to_str().unwrap())])
                 .output()
-                .expect("Cannot run ld to produce executalbe file");
+                .expect("Cannot run ld to produce executable file");
 
 
 
@@ -94,7 +94,7 @@ fn main() {
 }
 
 const USAGE: &'static str = "
-Usage: latc_llvm <input>
+Usage: latc_x86_64 <input>
 Parses file input and compiles it.
 ";
 

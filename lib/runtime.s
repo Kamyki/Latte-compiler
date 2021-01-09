@@ -107,7 +107,7 @@ mov r10, rax
 jmp loop
 
 
-concatString:
+_concatString:
 push rbp
 mov rbp, rsp
 and rsp, -16

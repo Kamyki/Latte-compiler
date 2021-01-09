@@ -8,6 +8,7 @@ pub struct ControlFlowGraph {
     pub blocks: HashMap<Label, SimpleBlock>,
     pub functions: HashMap<String, (Label, Vec<Reg>)>,
     pub builtin: HashMap<String, (Label, u32)>,
+    pub strings: HashMap<u32, String>,
 
     pub current_block: Vec<(Label, SimpleBlock)>
 }
@@ -19,6 +20,7 @@ impl ControlFlowGraph {
             functions: HashMap::new(),
             current_block: Vec::new(),
             builtin: HashMap::new(),
+            strings: HashMap::new(),
         }
     }
 
