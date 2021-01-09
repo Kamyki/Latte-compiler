@@ -454,8 +454,8 @@ impl AssemblerTransformer {
                 }
                 Instr::Call(ret, label, args) => {
                     let all_regs = self.all_registers.clone();
-                    for reg in all_regs.into_iter() {
-                        self.dump_to_memory(&Target::Reg(reg));
+                    for reg in all_regs.iter() {
+                        self.dump_to_memory(&Target::Reg(reg.clone()));
                     }
                     for arg in args.clone().iter().rev() { // add args
                         let a_reg = self.get_target(arg);
@@ -464,6 +464,9 @@ impl AssemblerTransformer {
                     self.code.push(Opcode::Call(label.clone()));
                     if args.len() > 0 { // remove args
                         self.code.push(Opcode::Add(Target::Reg(ESP), Target::Imm(8 * args.len() as i32)))
+                    }
+                    for reg in all_regs.into_iter() {
+                        self.make_reg_free(Target::Reg(reg));
                     }
                     if ret.itype != IType::Void  {
                         self.put_into_target(ret, &Target::Reg(EAX))
