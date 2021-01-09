@@ -239,6 +239,7 @@ impl AssemblerTransformer {
                 for reg in all_regs.into_iter() {
                     self.free_target(Target::Reg(reg));
                 }
+
                 self.code.push(Opcode::Label(label));
                 self.transform_block(block)
             }
@@ -412,10 +413,6 @@ impl AssemblerTransformer {
                         Value::Register(r) => {
                             match (self.to_register.get(r).cloned(), self.to_memory.get(r).cloned()) {
                                 (None, None) => {
-                                    println!("usage {:?}", self.usage);
-                                    println!("to_memory {:?}", self.to_memory);
-                                    println!("to_register {:?}", self.to_register);
-                                    println!("to_value {:?}", self.to_value);
                                     panic!("Where is source of assignment?")
                                 },
                                 (None, Some(mem)) => {
@@ -437,8 +434,18 @@ impl AssemblerTransformer {
                         Value::Bool(b) => self.code.push(Opcode::Mov(v_target, Target::Imm(if *b { 1 } else { 0 }))),
                     }
                 }
-                Instr::Jump(l) => self.code.push(Opcode::Jmp(l.clone())),
+                Instr::Jump(l) => {
+                    let all_regs = self.all_registers.clone();
+                    for reg in all_regs.into_iter() {
+                        self.dump_to_memory(&Target::Reg(reg));
+                    }
+                    self.code.push(Opcode::Jmp(l.clone()))
+                },
                 Instr::If(x, o, y, t, f) => {
+                    let all_regs = self.all_registers.clone();
+                    for reg in all_regs.into_iter() {
+                        self.dump_to_memory(&Target::Reg(reg));
+                    }
                     let x_reg = self.get_target(x);
                     let y_reg = self.get_target(y);
                     self.code.push(Opcode::Cmp(x_reg, y_reg));
