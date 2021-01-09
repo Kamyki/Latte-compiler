@@ -7,7 +7,7 @@ global readInt
 global readString
 global _concatString
 
-extern printf, scanf, exit, getchar, realloc, strlen, memcpy
+extern printf, scanf, exit, getchar, realloc, strlen, memcpy, fflush
 
 
 
@@ -21,6 +21,8 @@ lea rdi, [rel __int_format]
 mov rax, 0
 
 call printf
+call fflush
+
 mov rsp, rbp
 pop rbp
 ret
@@ -33,6 +35,7 @@ and rsp, -16
 mov rsi, [rbp + 16]
 lea rdi, [rel __string_format]
 call printf
+call fflush
 
 mov rsp, rbp
 pop rbp
