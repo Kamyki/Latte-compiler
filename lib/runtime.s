@@ -79,23 +79,23 @@ and rsp, -16
 mov rdi, 0
 mov rsi, 32
 call realloc
-mov r10, rax
-mov r9, 0
-mov r8, 32
+mov r12, rax
+mov r13, 0
+mov r14, 32
 
 loop:
-cmp r9, r8
+cmp r13, r14
 je bigger
 call getchar
-mov [r10 + r9], rax
-inc r9
+mov [r12 + r13], rax
+inc r13
 cmp rax, 0
 je final
 jmp loop
 
 final:
-mov rdi, r10,
-mov rsi, r9
+mov rdi, r12
+mov rsi, r13
 call realloc
 
 mov rsp, rbp
@@ -103,11 +103,11 @@ pop rbp
 ret
 
 bigger:
-mov rdi, r10
-shl r8, 1
-mov rsi, r8
+mov rdi, r12
+shl r14, 1
+mov rsi, r14
 call realloc
-mov r10, rax
+mov r12, rax
 jmp loop
 
 
@@ -119,38 +119,38 @@ and rsp, -16
 mov r9, [rbp + 16]
 mov r10, [rbp + 24]
 
-mov rdi, r9
+mov rdi, [rbp + 16]
 call strlen
-mov r11, rax
+mov r12, rax ; len 1
 
-mov rdi, r10
+mov rdi, [rbp + 24]
 call strlen
-mov r12, rax
+mov r13, rax ; len 2
 
-mov r13, r11
-add r13, r12
-add r13, 1
+mov r14, r12
+add r14, r13
+add r14, 1 ; len(1+2) + 1
 
 mov rdi, 0
-mov rsi, r13
+mov rsi, r14
 call realloc
-mov r14, rax
+mov r15, rax ; addr
 
 mov rdi, rax
-mov rsi, r9
-mov rdx, r11
-call memcpy
-
-mov rdi, r14
-add rdi, r11
-mov rsi, r10
+mov rsi, [rbp + 16]
 mov rdx, r12
 call memcpy
 
-mov rax, r13
+mov rdi, r15
+add rdi, r12
+mov rsi, [rbp + 24]
+mov rdx, r13
+call memcpy
+
+add rax, r14
 mov byte [rax], 0
 
-mov rax, r14
+mov rax, r15
 mov rsp, rbp
 pop rbp
 ret
