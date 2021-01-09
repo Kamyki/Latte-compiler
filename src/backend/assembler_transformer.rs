@@ -486,7 +486,7 @@ impl AssemblerTransformer {
                 }
                 Instr::If(x, o, y, t, f) => {
                     self.dump_all();
-                    let x_reg = self.get_target(x);
+                    let x_reg = self.get_reg_target(x);
                     let y_reg = self.get_target(y);
                     self.code.push(Opcode::Cmp(x_reg, y_reg));
                     match o {
