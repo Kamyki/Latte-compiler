@@ -30,7 +30,8 @@ push rbp
 mov rbp, rsp
 and rsp, -16
 
-mov rdi, [rbp + 16]
+mov rsi, [rbp + 16]
+lea rdi, [rel __string_format]
 call printf
 
 mov rsp, rbp
@@ -151,4 +152,5 @@ mov rsp, rbp
 pop rbp
 ret
 
-__int_format db '%d',0x0a,0
+__int_format db '%ld',0x0a,0
+__string_format db '%s' 0x0a,0
