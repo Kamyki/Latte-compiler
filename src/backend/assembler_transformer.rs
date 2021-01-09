@@ -237,7 +237,7 @@ impl AssemblerTransformer {
             for (label, block) in graph.iter_fun(function) {
                 let all_regs = self.all_registers.clone();
                 for reg in all_regs.into_iter() {
-                    self.dump_to_memory(&Target::Reg(reg));
+                    self.free_target(Target::Reg(reg));
                 }
                 self.code.push(Opcode::Label(label));
                 self.transform_block(block)
