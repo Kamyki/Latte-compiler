@@ -79,9 +79,9 @@ impl Display for Target {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Target::Reg(r) => write!(f, "{}", r),
-            Target::Imm(i) => write!(f, "{}", i),
+            Target::Imm(i) => write!(f, "qword {}", i),
             Target::Memory(Memory { base, offset, displacement }) => {
-                let mut result = write!(f, "[");
+                let mut result = write!(f, "qword [");
                 let mut v = vec![];
                 if let Some(r) = base {
                     v.push(format!("{}", r))
@@ -135,7 +135,7 @@ impl Display for Opcode {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Opcode::Cmp(a,b) => write!(f, "cmp {}, {}", a, b),
-            Opcode::Mov(a, b) => write!(f, "mov {}, qword {}", a, b),
+            Opcode::Mov(a, b) => write!(f, "mov {}, {}", a, b),
             Opcode::Add(a, b) => write!(f, "add {}, {} ", a, b),
             Opcode::Mul(a, b) => write!(f, "imul {}, {}", a, b),
             Opcode::Sub(a, b) => write!(f, "sub {}, {}", a, b),
@@ -148,8 +148,8 @@ impl Display for Opcode {
             Opcode::Jgt(l) => write!(f, "jg {}", l),
             Opcode::Jge(l) => write!(f, "jge {}", l),
             Opcode::Label(l) => write!(f, "{}:", l),
-            Opcode::Push(r) => write!(f, "push qword {}", r),
-            Opcode::Pop(r) => write!(f, "pop qword {}", r),
+            Opcode::Push(r) => write!(f, "push {}", r),
+            Opcode::Pop(r) => write!(f, "pop {}", r),
             Opcode::Call(l) => write!(f, "call {}", l),
             Opcode::Xchng(a, b) => write!(f, "xchmg {} {}", a, b),
             Opcode::Ret => write!(f, "ret"),
