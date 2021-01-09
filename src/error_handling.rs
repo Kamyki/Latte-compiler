@@ -31,7 +31,8 @@ pub enum FrontendError {
     WrongExtend,
     CircularClassHierarchy,
     VirtualMethod,
-    MissingMain
+    MissingMain,
+    VoidVariable,
 }
 
 impl From<&FrontendError> for String {
@@ -55,7 +56,8 @@ impl From<&FrontendError> for String {
             FrontendError::WrongExtend => "Class extending error",
             FrontendError::CircularClassHierarchy => "Detected circular class hierarchy",
             FrontendError::VirtualMethod => "Virtual method not supported",
-            FrontendError::MissingMain => "Couldn't find main"
+            FrontendError::MissingMain => "Couldn't find main",
+            FrontendError::    VoidVariable => "Void variable",
         }.to_string()
     }
 }

@@ -30,16 +30,20 @@ impl<'a> FunctionAnalyser<'a> {
 
     pub fn insert_var(&mut self, id: Id, t: Type) -> CheckerResult<()> {
         let span = id.span;
-        match self {
-            FunctionAnalyser::Root(_, globals) => match globals.insert(id.item, t) {
-                None => Ok(()),
-                Some(_) => Err(DoubleDeclaration.add_done(span, "There is another field with that name"))
-            },
-            FunctionAnalyser::Frame { ref mut locals, .. } => match locals.insert(id.item, t) {
-                None => Ok(()),
-                Some(_) => Err(DoubleDeclaration.add_done(span, "There is another variable with that name")),
-            }
-        }
+        match t.item {
+            IType::Void => Err(VoidVariable.add_done(id.span, "Void variable arn't allowed")),
+            _ => Ok(()),
+        }.and(
+            match self {
+                FunctionAnalyser::Root(_, globals) => match globals.insert(id.item, t) {
+                    None => Ok(()),
+                    Some(_) => Err(DoubleDeclaration.add_done(span, "There is another field with that name"))
+                },
+                FunctionAnalyser::Frame { ref mut locals, .. } => match locals.insert(id.item, t) {
+                    None => Ok(()),
+                    Some(_) => Err(DoubleDeclaration.add_done(span, "There is another variable with that name")),
+                }
+            })
     }
 
     fn find_var(&self, id: &Id) -> Option<&Type> {
@@ -119,7 +123,7 @@ impl<'a> FunctionAnalyser<'a> {
     }
 
     fn check_field(&self, field: &Field) -> CheckerResult<Type> {
-        self.check_expr(&field.e).and_then(|t| {
+        self.check_expr(&field.e).and_then(|(t, _)| {
             if let IType::Class(c) = t.item {
                 self.find_class(&c).ok_or(UnknownClass.add_done(field.id.span, "Use of unknown field"))
                     .and_then(|cs| cs.find_var(&field.id).ok_or(
@@ -139,13 +143,13 @@ impl<'a> FunctionAnalyser<'a> {
                 items.iter().map(|it| match it {
                     Item::NoInit(i) => self.insert_var(i.clone(), t.clone()),
                     Item::Init { i, e } => self.insert_var(i.clone(), t.clone())
-                        .and(self.check_expr(e).and_then(|e_type| Self::match_type(t, &e_type)))
+                        .and(self.check_expr(e).and_then(|(e_type, _)| Self::match_type(t, &e_type)))
                 }).acc().and_then(|_: ()| Ok(false))
             }
             IStmt::Asg { i, e } => self.check_target(i)
                 .and_then(|t1| self.check_expr(e)
-                    .and_then(|t2| if t1.item == t2.item {
-                        Ok(false)
+                    .and_then(|(t2, err)| if t1.item == t2.item {
+                        Ok(err)
                     } else if let IType::Class(c) = t2.item {
                         if self.extends(self.find_class(c.as_str()).unwrap(), &t1.item) {
                             Ok(false)
@@ -167,58 +171,59 @@ impl<'a> FunctionAnalyser<'a> {
                 Err(ArithmeticError.add_done(stmt.span, "++ and -- allowed with ints only"))
             }),
             IStmt::Ret(e) => self.check_expr(e)
-                .and_then(|t| Self::match_type(self.ret_type(), &t))
+                .and_then(|(t, _)| Self::match_type(self.ret_type(), &t))
                 .and(Ok(true)),
             IStmt::VRet => Self::match_type(self.ret_type(), &Type { item: IType::Void, span: stmt.span })
                 .and(Ok(true)),
-            IStmt::Cond { c, if_true } => self.check_cond(c).and_then(|cond| {
+            IStmt::Cond { c, if_true } => self.check_cond(c).and_then(|(cond, err)| {
                 self.check_block(if_true).and_then(|t1| match cond {
-                    Some(true) => Ok(t1),
-                    _ => Ok(false),
+                    Some(true) => Ok(t1 || err),
+                    _ => Ok(err),
                 })
             }),
             IStmt::CondElse { c, if_true, if_false } => {
-                self.check_cond(c).and_then(|cond| {
+                self.check_cond(c).and_then(|(cond, err)| {
                     self.check_block(if_true).and_then(|t1|
                         self.check_block(if_false).and_then(|t2| match cond {
-                            Some(true) => Ok(t1),
-                            Some(false) => Ok(t2),
-                            _ => Ok(t1 && t2),
+                            Some(true) => Ok(t1 || err),
+                            Some(false) => Ok(t2 || err),
+                            _ => Ok((t1 && t2) || err),
                         }))
                 })
             }
-            IStmt::While { c, while_true } => self.check_cond(c).and_then(|cond| match cond {
-                Some(false) => self.check_block(while_true).and(Ok(false)),
-                _ => self.check_block(while_true)
+            IStmt::While { c, while_true } => self.check_cond(c).and_then(|(cond, err)| match cond {
+                Some(false) => self.check_block(while_true).and(Ok(err)),
+                _ => self.check_block(while_true).map(|b| b || err)
             }),
             IStmt::Expr(e) => self.check_expr(e).and(Ok(false)),
         }
     }
 
-    fn check_expr(&self, expr: &Expr) -> CheckerResult<Type> {
+    fn check_expr(&self, expr: &Expr) -> CheckerResult<(Type, bool)> {
         match &expr.item {
             IExpr::Unary { o, e } => {
                 self.check_expr(e)
-                    .and_then(|t| self.check_un_op(o, &t))
+                    .and_then(|(t,f)| self.check_un_op(o, &t).map(|t| (t, f)))
             }
             IExpr::Binary { o, l, r } => {
                 self.check_expr(l)
-                    .and_then(|lt| self.check_expr(r)
-                        .and_then(|rt|
-                            self.check_bin_op(o, &lt, &rt)
+                    .and_then(|(lt, lf)| self.check_expr(r)
+                        .and_then(|(rt, rf)|
+                            self.check_bin_op(o, &lt, &rt).map(|t| (t, lf || rf))
                         )
                     )
             }
             IExpr::Var(i) => match self.find_var(i) {
                 None => Err(UndefinedVariable.add_done(expr.span, "Use of undefined variable")),
-                Some(t) => Ok(t.clone())
+                Some(t) => Ok((t.clone(), false))
             },
-            IExpr::Int(_) => Ok(Type { item: IType::Int, span: expr.span }),
-            IExpr::Bool(_) => Ok(Type { item: IType::Boolean, span: expr.span }),
-
+            IExpr::Int(_) => Ok((Type { item: IType::Int, span: expr.span }, false)),
+            IExpr::Bool(_) => Ok((Type { item: IType::Boolean, span: expr.span }, false)),
             IExpr::FunCall { name, args } => match name {
-                Target::Id(id) => self.find_function(id).ok_or(UndefinedFunction.add_done(expr.span, "Call to undefined function")),
-                Target::Field(Field { e, id }) => self.check_expr(e).and_then(|t| if let IType::Class(c) = t.item {
+                Target::Id(id) => {
+                    self.find_function(id).ok_or(UndefinedFunction.add_done(expr.span, "Call to undefined function"))
+                }
+                Target::Field(Field { e, id }) => self.check_expr(e).and_then(|(t, _)| if let IType::Class(c) = t.item {
                     self.find_class(c.as_str()).ok_or(
                         UndefinedVariable.add_done(e.span, "Unknown class type")
                     ).and_then(|o| o.find_method(id).ok_or(UndefinedFunction.add_done(id.span, "Use of undefined class method")))
@@ -226,16 +231,24 @@ impl<'a> FunctionAnalyser<'a> {
                     Err(FieldAccess.add_done(expr.span, "Accessing method on non object"))
                 })
             }.and_then(|fg| args.iter().map(|a| self.check_expr(a)).acc()
-                .and_then(|args| fg.check_call(args, expr.span))
-                .and(Ok(Type { item: fg.ret_type.item.clone(), span: expr.span }))),
-            IExpr::String(_) => Ok(Type { item: IType::String, span: expr.span }),
+                .and_then(|args_err: Vec<(Type, bool)>| {
+                    let args = args_err.iter().map(|(a,_)| a).cloned().collect();
+                    let err = args_err.iter().map(|(_,b)| b).cloned().fold(false, |a, b| a || b);
+                    fg.check_call(args, expr.span).and(Ok(err))
+                })
+                .and_then(|err|
+                    match name {
+                        Target::Id(id) if id.item == "error" => Ok((Type { item: fg.ret_type.item.clone(), span: expr.span }, true)),
+                        _ => Ok((Type { item: fg.ret_type.item.clone(), span: expr.span }, err))
+                    })),
+            IExpr::String(_) => Ok((Type { item: IType::String, span: expr.span }, false)),
             IExpr::Paren(e) => self.check_expr(e),
-            IExpr::Field(f) => self.check_field(f),
-            IExpr::Object(o) => Ok(o.clone()),
-            IExpr::Null => Ok(Type { span: expr.span, item: IType::Null }),
+            IExpr::Field(f) => self.check_field(f).map(|t| (t, false)),
+            IExpr::Object(o) => Ok((o.clone(), false)),
+            IExpr::Null => Ok((Type { span: expr.span, item: IType::Null }, false)),
             IExpr::Cast { t, e } => if let IType::Class(_) = &t.item {
-                self.check_expr(e).and_then(|et| if et.item == t.item || et.item == IType::Null {
-                    Ok(t.clone())
+                self.check_expr(e).and_then(|(et, f)| if et.item == t.item || et.item == IType::Null {
+                    Ok((t.clone(), f))
                 } else {
                     Err(CastingError.add_done(e.span, "Cannot cast expresion to intended type"))
                 })
@@ -255,12 +268,17 @@ impl<'a> FunctionAnalyser<'a> {
         }
     }
 
-    fn check_cond(&self, expr: &Expr) -> CheckerResult<Option<bool>> {
-        self.check_expr(expr).and(
-            match expr.item {
-                IExpr::Bool(b) => Ok(Some(b)),
-                _ => Ok(None)
-            }
+    fn check_cond(&self, expr: &Expr) -> CheckerResult<(Option<bool>, bool)> {
+        self.check_expr(expr).and_then(|(t, err)|
+            if t.item == IType::Boolean {
+                Ok(())
+            } else {
+                Err(WrongConditionType.add_done(expr.span, "Not boolean condition expression"))
+            }.and(
+                match expr.item {
+                    IExpr::Bool(b) => Ok((Some(b), err)),
+                    _ => Ok((None, err))
+                })
         )
     }
 

@@ -500,11 +500,11 @@ impl AssemblerTransformer {
                     self.code.push(Opcode::Jmp(f.clone()));
                 }
                 Instr::Call(ret, label, args) => {
-                    self.dump_all();
                     for arg in args.clone().iter().rev() { // add args
                         let a_reg = self.get_target(arg);
                         self.code.push(Opcode::Push(a_reg))
                     }
+                    self.dump_all();
                     self.code.push(Opcode::Call(label.clone()));
                     if args.len() > 0 { // remove args
                         self.code.push(Opcode::Add(Target::Reg(ESP), Target::Imm(8 * args.len() as i32)))
