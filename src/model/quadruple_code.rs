@@ -299,7 +299,7 @@ impl Reg {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum Value {
     Register(Reg),
     Int(i32),

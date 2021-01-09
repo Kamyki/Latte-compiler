@@ -74,8 +74,22 @@ impl AssemblerTransformer {
                         self.move_value(reg.clone(), self.memory[&var].clone());
                     }
                 }
-                if let None = self.to_memory.get(&var) {
-                    self.move_value(reg.clone(), self.memory[&var].clone());
+            }
+        }
+    }
+
+    fn dump_all(&mut self) {
+        let all_reg = self.all_registers.clone();
+        for reg in all_reg {
+            let reg_target = Target::Reg(reg);
+            let values=  self.to_value.get(&reg_target).cloned().unwrap_or(HashSet::new());
+            for v in values {
+                let mem = self.memory[&v].clone();
+                match self.to_memory.get(&v).cloned() {
+                    Some(m) if Target::Memory(m.clone()) == mem => {}
+                    _ => {
+                        self.move_value(reg_target.clone(), mem.clone());
+                    }
                 }
             }
         }
@@ -467,17 +481,11 @@ impl AssemblerTransformer {
                     }
                 }
                 Instr::Jump(l) => {
-                    let all_regs = self.all_registers.clone();
-                    for reg in all_regs.into_iter() {
-                        self.dump_to_memory(&Target::Reg(reg));
-                    }
+                    self.dump_all();
                     self.code.push(Opcode::Jmp(l.clone()))
                 }
                 Instr::If(x, o, y, t, f) => {
-                    let all_regs = self.all_registers.clone();
-                    for reg in all_regs.into_iter() {
-                        self.dump_to_memory(&Target::Reg(reg));
-                    }
+                    self.dump_all();
                     let x_reg = self.get_target(x);
                     let y_reg = self.get_target(y);
                     self.code.push(Opcode::Cmp(x_reg, y_reg));
@@ -492,10 +500,7 @@ impl AssemblerTransformer {
                     self.code.push(Opcode::Jmp(f.clone()));
                 }
                 Instr::Call(ret, label, args) => {
-                    let all_regs = self.all_registers.clone();
-                    for reg in all_regs.iter() {
-                        self.dump_to_memory(&Target::Reg(reg.clone()));
-                    }
+                    self.dump_all();
                     for arg in args.clone().iter().rev() { // add args
                         let a_reg = self.get_target(arg);
                         self.code.push(Opcode::Push(a_reg))
@@ -504,6 +509,7 @@ impl AssemblerTransformer {
                     if args.len() > 0 { // remove args
                         self.code.push(Opcode::Add(Target::Reg(ESP), Target::Imm(8 * args.len() as i32)))
                     }
+                    let all_regs = self.all_registers.clone();
                     for reg in all_regs.into_iter() {
                         self.make_reg_free(Target::Reg(reg));
                     }
