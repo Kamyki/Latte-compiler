@@ -249,7 +249,10 @@ unOp: UnOp = {
 }
 
 integer: i32 = {
-    r"[0-9]+" => i32::from_str(<>).unwrap(),
+    <l: @L> <i: r"[0-9]+"> <r: @R>  =>? i32::from_str(i).map_err(|_| {
+                errors.extend(ParsingError.add_done((l, r), "Int cannot be parsed to int32"));
+                ParseError::User { error: "parsing error" }
+    }),
 };
 
 identifier: Id = {

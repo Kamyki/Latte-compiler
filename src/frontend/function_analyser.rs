@@ -142,8 +142,7 @@ impl<'a> FunctionAnalyser<'a> {
             IStmt::Decl { t, items } => {
                 items.iter().map(|it| match it {
                     Item::NoInit(i) => self.insert_var(i.clone(), t.clone()),
-                    Item::Init { i, e } => self.insert_var(i.clone(), t.clone())
-                        .and(self.check_expr(e).and_then(|(e_type, _)| Self::match_type(t, &e_type)))
+                    Item::Init { i, e } => self.check_expr(e).and_then(|(e_type, _)| self.insert_var(i.clone(), t.clone()).and(Self::match_type(t, &e_type)))
                 }).acc().and_then(|_: ()| Ok(false))
             }
             IStmt::Asg { i, e } => self.check_target(i)

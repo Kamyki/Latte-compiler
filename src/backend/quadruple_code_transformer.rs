@@ -4,7 +4,7 @@ use crate::backend::quadruple_code_transformer::QuadrupleCodeTransformer::Root;
 use crate::frontend::global_analyser::FunctionSignature;
 use crate::frontend::Maps;
 use crate::model::ast::{Block, Expr, Function, IBinOp, Id, IExpr, IStmt, Item, IType, Program, Target, TopDef, UnOp as Unary};
-use crate::model::quadruple_code::{ControlFlowGraph, Instr, Label, Reg, UnOp, Value};
+use crate::model::quadruple_code::{ControlFlowGraph, Instr, Label, Reg, UnOp, Value, BinOp};
 use crate::model::quadruple_code::Instr::Jump;
 use crate::model::quadruple_code::RelOp::EQ;
 
@@ -592,7 +592,11 @@ impl<'a> QuadrupleCodeTransformer<'a> {
             Value::String(_) => Reg::new(IType::String, self.new_label()),
             Value::Bool(_) => Reg::new(IType::Boolean, self.new_label()),
         };
-        graph.push(Instr::Asg2(reg.clone(), v1, o.clone().into(), v2));
+        if reg.itype == IType::String && *o == IBinOp::Add {
+            graph.push(Instr::Asg2(reg.clone(), v1, BinOp::Concat, v2));
+        } else {
+            graph.push(Instr::Asg2(reg.clone(), v1, o.clone().into(), v2));
+        }
         Value::Register(reg)
     }
 }

@@ -174,7 +174,7 @@ pub enum UnOp {
 
 pub type BinOp = Spanned<IBinOp>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum IBinOp {
     Mul,
     Div,

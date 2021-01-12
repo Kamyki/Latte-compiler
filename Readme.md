@@ -21,7 +21,8 @@ Dependencies:
 - For linking GNU linker (ld)
 
 What is inside:
-- Compiler of basic Latte on x86_64 architecture with register allocation (without liveliness analysis).
-- Boolean values made with lazy evaluation 
+- Compiler of basic Latte on x86_64 architecture with register allocation.
+- Register allocation.
+- Boolean values made with lazy evaluation.
 - Jumps to next line are removed, but labels are left alone. Order of labeled blocks is semi-random so sometimes compiler produces additional jumps.
 - Static string built into binary. Runtime string allocated using c malloc.

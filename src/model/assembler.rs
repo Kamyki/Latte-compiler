@@ -4,7 +4,7 @@ use serde::export::fmt::Display;
 use serde::export::Formatter;
 
 use crate::model::assembler::Register::*;
-use crate::model::quadruple_code::Label;
+use crate::model::quadruple_code::{Label, BinOp};
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Register {
@@ -129,6 +129,19 @@ pub enum Opcode {
     Special(String),
     Not(Target),
     Neg(Target),
+}
+
+impl Opcode {
+    pub fn from_op(op: &BinOp, dest: Target, source: Target) -> Self {
+        match op {
+            BinOp::Add => Opcode::Add(dest, source),
+            BinOp::Mul => Opcode::Mul(dest, source),
+            BinOp::Div => Opcode::Div(source),
+            BinOp::Mod => Opcode::Div(source),
+            BinOp::Sub => Opcode::Sub(dest, source),
+            BinOp::Concat => unreachable!(),
+        }
+    }
 }
 
 impl Display for Opcode {
