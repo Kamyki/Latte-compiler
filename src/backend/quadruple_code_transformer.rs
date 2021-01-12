@@ -43,7 +43,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
             label = format!("{}_{}", label, num);
             a = parent;
         }
-        if let QuadrupleCodeTransformer::Root { num, ..} = a {
+        if let QuadrupleCodeTransformer::Root { num, .. } = a {
             format!("{}_{}", label, num)
         } else {
             label
@@ -118,7 +118,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
 
     fn add_strings(&self, graph: &mut ControlFlowGraph) {
         match self {
-            QuadrupleCodeTransformer::Root { strings,..  } => {
+            QuadrupleCodeTransformer::Root { strings, .. } => {
                 graph.strings.extend(strings.iter().map(|(s, i)| (*i, s.clone())))
             }
             QuadrupleCodeTransformer::Frame { root, .. } => root.add_strings(graph),
@@ -181,7 +181,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                         match item {
                             Item::NoInit(x) => {
                                 let var = block_transformer.new_label();
-                                let reg =Reg::new(t.item.clone(), var);
+                                let reg = Reg::new(t.item.clone(), var);
                                 block_transformer.insert_var(x.clone(), reg.clone());
                                 match t.item {
                                     IType::Int => graph.push(Instr::Copy(reg, Value::Int(0))),
@@ -297,14 +297,29 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                     Unary::BoolNegation => {
                         match cond {
                             None => {
+                                let label_true = self.new_label();
+                                let label_false = self.new_label();
+                                let label_end = self.new_label();
                                 let reg = Reg::new(IType::Boolean, self.new_label());
-                                let v = self.transform_expr(graph, e, cond);
-                                graph.push(Instr::Asg1(reg.clone(), UnOp::BoolNeg, v));
+                                self.transform_expr(graph, e, Some((&label_false, &label_true)));
+
+                                graph.begin_block(label_true);
+                                graph.push(Instr::Copy(reg.clone(), Value::Bool(true)));
+                                graph.push(Instr::Jump(label_end.clone()));
+                                graph.close_block();
+                                graph.begin_block(label_false);
+                                graph.push(Instr::Copy(reg.clone(), Value::Bool(false)));
+                                graph.push(Instr::Jump(label_end.clone()));
+                                graph.close_block();
+
+                                graph.close_block();
+                                graph.begin_block(label_end);
+
                                 Value::Register(reg)
-                            },
+                            }
                             Some((t, f)) => {
                                 self.transform_expr(graph, e, Some((f, t)))
-                            },
+                            }
                         }
                     }
                 }
@@ -393,7 +408,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                         graph.begin_block(label_false);
                         graph.close_block();
                         v2
-                    },
+                    }
                     Value::Bool(false) => {
                         graph.begin_block(label_false);
                         graph.push(Instr::Jump(label_end.clone()));
@@ -401,7 +416,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                         graph.begin_block(label_true1);
                         graph.close_block();
                         v1
-                    },
+                    }
                     _ => {
                         graph.begin_block(label_true1);
                         let reg = Reg::new(IType::Boolean, self.new_label());
@@ -437,7 +452,11 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                 let v1 = self.transform_expr(graph, l, Some((&m, &f)));
                 match v1 {
                     Value::Bool(false) => v1,
-                    Value::Bool(true) => self.transform_expr(graph, r, Some((&t, &f))),
+                    Value::Bool(true) => {
+                        graph.begin_block(m);
+                        graph.close_block();
+                        self.transform_expr(graph, r, Some((&t, &f)))
+                    },
                     _ => {
                         graph.begin_block(m);
                         self.transform_expr(graph, r, Some((&t, &f)));
@@ -466,7 +485,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                         graph.begin_block(label_false1);
                         graph.close_block();
                         v1
-                    },
+                    }
                     Value::Bool(false) => {
                         graph.begin_block(label_false1);
                         let v2 = self.transform_expr(graph, r, None);
@@ -475,7 +494,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                         graph.begin_block(label_true);
                         graph.close_block();
                         v2
-                    },
+                    }
                     _ => {
                         graph.begin_block(label_false1);
                         let reg = Reg::new(IType::Boolean, self.new_label());
@@ -508,10 +527,14 @@ impl<'a> QuadrupleCodeTransformer<'a> {
             }
             Some((t, f)) => {
                 let m = self.new_label();
-                let v1 = self.transform_expr(graph, l, Some((&m, &f)));
+                let v1 = self.transform_expr(graph, l, Some((&t, &m)));
                 match v1 {
                     Value::Bool(true) => v1,
-                    Value::Bool(false) => self.transform_expr(graph, r, Some((&t, &f))),
+                    Value::Bool(false) => {
+                        graph.begin_block(m);
+                        graph.close_block();
+                        self.transform_expr(graph, r, Some((&t, &f)))
+                    },
                     _ => {
                         graph.begin_block(m);
                         self.transform_expr(graph, r, Some((&t, &f)));
@@ -526,7 +549,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
     fn transform_rel(&mut self, graph: &mut ControlFlowGraph, l: &Box<Expr>, o: &IBinOp, r: &Box<Expr>, cond: Option<(&Label, &Label)>) -> Value {
         match cond {
             None => {
-                let label_false= self.new_label();
+                let label_false = self.new_label();
                 let label_true = self.new_label();
                 let label_end = self.new_label();
                 let v1 = self.transform_expr(graph, l, None);
@@ -548,7 +571,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                 graph.close_block();
                 graph.begin_block(label_end);
                 Value::Register(reg)
-            },
+            }
             Some((t, f)) => {
                 let v1 = self.transform_expr(graph, l, None);
                 let v2 = self.transform_expr(graph, r, None);

@@ -275,7 +275,6 @@ impl From<IBinOp> for BinOp {
 #[derive(Debug)]
 pub enum UnOp {
     IntNeg,
-    BoolNeg,
     Incr,
     Decr,
 }

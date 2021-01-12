@@ -14,7 +14,6 @@ mod assembler_transformer;
 
 
 pub fn transform(maps: Maps, ast: &mut Program) -> CheckerResult<(ControlFlowGraph, Vec<Opcode>)> {
-    return  Ok((ControlFlowGraph::new(), vec![]));
     let mut transformer = QuadrupleCodeTransformer::new(maps);
 
     println!("{:?}", ast);

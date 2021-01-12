@@ -4,18 +4,31 @@ use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use crate::model::assembler::Register::{ESP, EBP, EAX, EDI, EBX, EDX};
 use crate::model::ast::IType;
+use crate::backend::assembler_transformer::RegState::{Free, Used, Reserved};
 
+
+#[derive(Debug, Eq, PartialEq, Clone)]
+enum RegState {
+    Free,
+    Reserved,
+    Used,
+}
+
+#[derive(Debug, Eq, PartialEq, Hash)]
+enum TTarget {
+    Reg(Register),
+    Mem(Memory),
+}
 
 #[derive(Debug)]
 pub struct AssemblerTransformer {
     code: Vec<Opcode>,
-    to_memory: HashMap<Reg, Memory>,
-    to_register: HashMap<Reg, Register>,
+    to_target: HashMap<Reg, HashSet<TTarget>>,
     to_value: HashMap<Target, HashSet<Reg>>,
-    memory: HashMap<Reg, Target>,
+    memory: HashMap<Reg, Memory>,
     usage: HashMap<Register, u32>,
     last_usage: u32,
-    all_registers: HashSet<Register>,
+    all_registers: HashMap<Register, RegState>,
     end_label: Option<Label>,
     strings: HashMap<u32, Label>,
 }
@@ -24,74 +37,91 @@ impl AssemblerTransformer {
     pub fn new(all_registers: HashSet<Register>) -> Self {
         Self {
             code: Vec::new(),
-            to_memory: HashMap::new(),
-            to_register: HashMap::new(),
             to_value: HashMap::new(),
             usage: HashMap::from_iter(all_registers.iter().map(|k| (k.clone(), 0))),
-            all_registers,
+            all_registers: HashMap::from_iter(all_registers.iter().map(|k| (k.clone(), Free))),
             memory: HashMap::new(),
             last_usage: 0,
             end_label: None,
             strings: HashMap::new(),
+            to_target: HashMap::new(),
         }
     }
 
     fn get_free_register(&mut self) -> Register {
-        let used = HashSet::from_iter(self.to_value.keys().filter_map(|t| match t {
-            Target::Reg(r) => Some(r.clone()),
-            _ => None,
-        }));
-        match self.all_registers.difference(&used).next() {
+        match self.all_registers.iter().filter(|(_, v)| **v == Free).next() {
             None => {
                 let least = self.get_least_register();
                 let least_target = Target::Reg(least.clone());
-                self.make_reg_free(least_target.clone());
+                self.make_free(&least_target);
                 least
             }
-            Some(r) => r.clone()
+            Some((r, _)) => r.clone()
         }
     }
 
-    fn is_free(&self, target: &Target) -> bool {
-        match self.to_value.get(target) {
-            Some(v) if !v.is_empty() => false,
-            _ => true,
+    fn make_free(&mut self, reg: &Target) {
+        for var in self.to_value.get(reg).cloned().unwrap_or(HashSet::new()).iter() {
+            self.dump_to_memory(var);
         }
+        self.free_target(reg.clone());
     }
 
-    fn make_reg_free(&mut self, reg: Target) {
-        self.dump_to_memory(&reg);
-        self.free_target(reg);
-    }
-
-    fn dump_to_memory(&mut self, reg: &Target) {
-        if !self.is_free(reg) {
-            if let Some(var) = self.to_value[reg].iter().next().cloned() {
-                let mem = self.memory[&var].clone();
-                match self.to_memory.get(&var) {
-                    Some(m) if Target::Memory(m.clone()) == mem => {}
-                    _ => {
-                        self.move_value(reg.clone(), self.memory[&var].clone());
-                    }
-                }
+    fn dump_to_memory(&mut self, val: &Reg) {
+        let v_mem = self.memory[val].clone();
+        if !self.is_in_correct_memory(val) {
+            if let Some(r) = self.maybe_register_target(val) {
+                self.move_value(Target::Reg(r), Target::Memory(v_mem.clone()));
+            } else if let Some(m) = self.maybe_memory_target(val) {
+                self.move_value(Target::Memory(m), Target::Memory(v_mem.clone()));
             }
         }
+    }
+
+    fn make_copy_if_needed(&mut self, target: &Target) {
+        for var in self.to_value.get(target).cloned().unwrap_or_default().iter() {
+            if self.to_target.entry(var.clone()).or_default().len() == 1 {
+                self.dump_to_memory(var);
+            }
+        }
+    }
+
+    fn is_in_correct_memory(&self, reg: &Reg) -> bool {
+        let v_mem = &self.memory[reg];
+        self.to_target[reg].iter().filter(|t| match t {
+            TTarget::Mem(m) if m == v_mem => true,
+            _ => false
+        }).next().is_some()
+    }
+
+    fn maybe_register_target(&self, reg: &Reg) -> Option<Register> {
+        self.to_target[reg].iter().filter_map(|t| match t {
+            TTarget::Reg(r) => Some(r),
+            _ => None
+        }).next().cloned()
+    }
+
+    fn maybe_memory_target(&self, reg: &Reg) -> Option<Memory> {
+        self.to_target[reg].iter().filter_map(|t| match t {
+            TTarget::Mem(m) => Some(m),
+            _ => None
+        }).next().cloned()
     }
 
     fn dump_all(&mut self) {
-        let all_reg = self.all_registers.clone();
-        for reg in all_reg {
-            let reg_target = Target::Reg(reg);
-            let values=  self.to_value.get(&reg_target).cloned().unwrap_or(HashSet::new());
-            for v in values {
-                let mem = self.memory[&v].clone();
-                match self.to_memory.get(&v).cloned() {
-                    Some(m) if Target::Memory(m.clone()) == mem => {}
-                    _ => {
-                        self.move_value(reg_target.clone(), mem.clone());
-                    }
-                }
-            }
+        let vars: Vec<Reg> = self.to_target.keys().cloned().collect();
+        for var in vars {
+            self.dump_to_memory(&var);
+        }
+        for (v, _) in self.memory.iter() {
+            assert!(self.is_in_correct_memory(v));
+        }
+        self.to_target.clear();
+        self.to_value.clear();
+        self.all_registers.iter_mut().for_each(|(_, v)| *v = Free);
+        for (v, m) in self.memory.iter() {
+            self.to_target.entry(v.clone()).or_default().insert(TTarget::Mem(m.clone()));
+            self.to_value.entry(Target::Memory(m.clone())).or_default().insert(v.clone());
         }
     }
 
@@ -100,22 +130,11 @@ impl AssemblerTransformer {
         if from == to {
             panic!("Cannot move to itself");
         }
-        let vars = self.to_value.entry(to.clone()).or_default();
-        if let Some(var) = vars.iter().next() {
-            let mem_loc = self.to_memory.get(var);
-            let reg_loc = self.to_register.get(var);
-            match (&to, mem_loc, reg_loc) {
-                (Target::Reg(r), None, Some(rg)) if r == rg => {
-                    let var_mem = self.memory[var].clone();
-                    self.move_value(to.clone(), var_mem);
-                }
-                (Target::Reg(r), _, Some(rg)) if r == rg => {}
-                (Target::Memory(m), Some(mg), None) if m == mg => {
-                    let var_mem = self.memory[var].clone();
-                    self.move_value(to.clone(), var_mem.clone());
-                }
-                (Target::Memory(m), Some(mg), _) if m == mg => {}
-                _ => panic!("invalid target")
+        let vars = self.to_value.entry(to.clone()).or_default().clone();
+        for var in vars.iter().next() {
+            if self.to_target.entry(var.clone()).or_default().len() == 1 {
+                let var_mem = self.memory[var].clone();
+                self.move_value(to.clone(), Target::Memory(var_mem));
             }
         }
         self.free_target(to.clone());
@@ -135,22 +154,20 @@ impl AssemblerTransformer {
     }
 
     fn get_least_register(&self) -> Register {
-        self.usage.iter().min_by_key(|x| *x.1).unwrap().0.clone()
+        self.usage.iter().filter(|(r, _)| self.all_registers[r] == Used)
+            .min_by_key(|x| *x.1).unwrap().0.clone()
     }
 
     fn put_into_target(&mut self, var: &Reg, target: &Target) {
         match target {
             Target::Reg(r) => {
-                if let Some(previous) = self.to_register.insert(var.clone(), r.clone()) {
-                    self.to_value.entry(Target::Reg(previous)).or_default().remove(var);
-                }
+                self.to_target.entry(var.clone()).or_default().insert(TTarget::Reg(r.clone()));
+                self.all_registers.insert(r.clone(), Used);
                 self.last_usage += 1;
                 self.usage.insert(r.clone(), self.last_usage);
             }
             Target::Memory(m) => {
-                if let Some(previous) = self.to_memory.insert(var.clone(), m.clone()) {
-                    self.to_value.entry(Target::Memory(previous)).or_default().remove(var);
-                }
+                self.to_target.entry(var.clone()).or_default().insert(TTarget::Mem(m.clone()));
             }
             _ => panic!("Invalid target")
         }
@@ -160,27 +177,39 @@ impl AssemblerTransformer {
     fn free_target(&mut self, target: Target) -> Vec<Reg> {
         let vars = self.to_value.entry(target.clone()).or_default();
         let mut res = vec![];
-        for var in vars.drain() {
-            match &target {
-                Target::Reg(_) => {
-                    self.to_register.remove(&var);
+        match &target {
+            Target::Reg(r) => {
+                for var in vars.drain() {
+                    self.to_target.entry(var.clone()).or_default().remove(&TTarget::Reg(r.clone()));
+                    res.push(var)
                 }
-                Target::Memory(_) => {
-                    self.to_memory.remove(&var);
-                }
-                _ => panic!("Invalid target")
+                self.all_registers.insert(r.clone(), Free);
             }
-            res.push(var)
+            Target::Memory(m) => {
+                for var in vars.drain() {
+                    self.to_target.entry(var.clone()).or_default().remove(&TTarget::Mem(m.clone()));
+                    res.push(var)
+                }
+            }
+            _ => panic!("Invalid target")
         }
         res
     }
 
     fn free_value(&mut self, reg: &Reg) {
-        if let Some(t) = self.to_register.remove(reg) {
-            self.to_value.entry(Target::Reg(t)).or_default().remove(reg);
-        }
-        if let Some(t) = self.to_memory.remove(reg) {
-            self.to_value.entry(Target::Memory(t)).or_default().remove(reg);
+        for t in self.to_target.entry(reg.clone()).or_default().drain() {
+            match t {
+                TTarget::Reg(r) => {
+                    let vals = self.to_value.entry(Target::Reg(r.clone())).or_default();
+                    vals.remove(reg);
+                    if vals.is_empty() {
+                        self.all_registers.insert(r, Free);
+                    }
+                }
+                TTarget::Mem(m) => {
+                    self.to_value.entry(Target::Memory(m)).or_default().remove(reg);
+                }
+            }
         }
     }
 
@@ -188,9 +217,9 @@ impl AssemblerTransformer {
     fn get_target(&mut self, v: &Value) -> Target {
         match v {
             Value::Register(r) => {
-                if let Some(reg) = self.to_register.get(r) {
+                if let Some(reg) = self.maybe_register_target(r) {
                     Target::Reg(reg.clone())
-                } else if let Some(mem) = self.to_memory.get(r) {
+                } else if let Some(mem) = self.maybe_memory_target(r) {
                     Target::Memory(mem.clone())
                 } else {
                     panic!("Cannot find this value")
@@ -213,10 +242,19 @@ impl AssemblerTransformer {
             Target::Reg(_) => t,
             _ => {
                 let f_reg = self.get_free_register();
-                let f_target = Target::Reg(f_reg);
+                let f_target = Target::Reg(f_reg.clone());
                 self.code.push(Opcode::Mov(f_target.clone(), t));
+                self.all_registers.insert(f_reg, Reserved);
                 f_target
             }
+        }
+    }
+    fn unreserve(&mut self, target: &Target) {
+        match target {
+            Target::Reg(r) => {
+                self.all_registers.insert(r.clone(), Used);
+            }
+            _ => unreachable!("cannot ureserve")
         }
     }
 }
@@ -237,9 +275,8 @@ impl AssemblerTransformer {
         ]);
 
         for (function, (label, args)) in graph.functions.iter() {
-            self.to_memory.clear();
+            self.to_target.clear();
             self.to_value.clear();
-            self.to_register.clear();
             self.memory.clear();
 
             self.end_label = Some(format!("{}_endl", label));
@@ -247,11 +284,11 @@ impl AssemblerTransformer {
             let locals = graph.locals(function);
             let locals_num = locals.len();
             for (i, reg) in locals.into_iter().enumerate() {
-                self.memory.insert(reg.clone(), Target::Memory(Memory::new(-(1 + i as i32))));
+                self.memory.insert(reg.clone(), Memory::new(-(1 + i as i32)));
             }
             for (i, reg) in args.iter().enumerate() {
-                self.memory.insert(reg.clone(), Target::Memory(Memory::new((i + 2) as i32)));
-                self.put_into_target(reg, &Target::Memory(Memory::new((i + 2) as i32)));
+                self.memory.insert(reg.clone(), Memory::new((i + 2) as i32));
+                //self.put_into_target(reg, &Target::Memory(Memory::new((i + 2) as i32)));
             }
 
             self.code.push(Opcode::Label(function.clone()));
@@ -262,16 +299,10 @@ impl AssemblerTransformer {
 
 
             for (label, block) in graph.iter_fun(function) {
-                // let all_regs = self.all_registers.clone();
-                // for reg in all_regs.into_iter() {
-                //     self.free_target(Target::Reg(reg));
-                // }
-                self.to_memory.clear();
+                self.to_target.clear();
                 self.to_value.clear();
-                self.to_register.clear();
-                for reg in block.ins.iter() {
-                    let m = self.memory[reg].clone();
-                    self.put_into_target(reg, &m);
+                for (val, mem) in self.memory.iter() {
+                    self.to_target.insert(val.clone(), HashSet::from_iter(vec![TTarget::Mem(mem.clone())]));
                 }
                 self.code.push(Opcode::Label(label));
                 self.transform_block(block)
@@ -307,36 +338,39 @@ impl AssemblerTransformer {
 
     fn transform_block(&mut self, block: &SimpleBlock) {
         for instr in &block.code {
+            for (_, r) in self.all_registers.iter() {
+                assert_ne!(*r, Reserved, );
+            }
+
             match instr {
                 Instr::Asg2(ret, a, op, b) => {
                     match (op, &ret.itype) {
                         (BinOp::Add, IType::String) => {
-                            let all_regs = self.all_registers.clone();
-                            for reg in all_regs.into_iter() {
-                                self.dump_to_memory(&Target::Reg(reg));
-                            }
                             let b_target = self.get_target(b);
                             self.code.push(Opcode::Push(b_target));
                             let a_target = self.get_target(a);
                             self.code.push(Opcode::Push(a_target));
 
+                            self.dump_all();
                             self.code.push(Opcode::Call("_concatString".to_string()));
                             self.code.push(Opcode::Add(Target::Reg(ESP), Target::Imm(8 * 2 as i32)));
 
+                            self.free_value(ret);
                             self.put_into_target(ret, &Target::Reg(EAX))
                         }
                         (BinOp::Add, _) => {
                             let a_target = self.get_reg_target(a);
-                            self.dump_to_memory(&a_target);
+                            self.make_copy_if_needed(&a_target);
                             let b_target = self.get_target(b);
                             self.code.push(Opcode::Add(a_target.clone(), b_target));
                             self.free_target(a_target.clone());
+
                             self.free_value(ret);
                             self.put_into_target(ret, &a_target);
                         }
                         (BinOp::Mul, _) => {
                             let a_target = self.get_reg_target(a);
-                            self.dump_to_memory(&a_target);
+                            self.make_copy_if_needed(&a_target);
                             let b_target = self.get_target(b);
                             self.code.push(Opcode::Mul(a_target.clone(), b_target));
                             self.free_target(a_target.clone());
@@ -344,48 +378,54 @@ impl AssemblerTransformer {
                             self.put_into_target(ret, &a_target);
                         }
                         (BinOp::Div, _) => {
-                            let a_target = self.get_reg_target(a);
-                            self.dump_to_memory(&a_target);
+                            let a_target = self.get_target(a);
                             let eax_target = Target::Reg(EAX);
                             if a_target != eax_target {
-                                self.make_reg_free(eax_target.clone());
-                                self.code.push(Opcode::Mov(eax_target.clone(), a_target.clone()));
+                                self.move_value(a_target.clone(), eax_target.clone());
                             }
+                            self.make_copy_if_needed(&eax_target);
+
                             let edx_target = Target::Reg(EDX);
-                            self.make_reg_free(edx_target.clone());
+                            self.make_free(&edx_target);
+                            self.all_registers.insert(EDX, Reserved);
+
                             self.code.push(Opcode::Special("cqo".to_string()));
 
-                            let b_target = self.get_target(b);
-                            self.code.push(Opcode::Div(b_target));
+                            let b_target = self.get_reg_target(b);
+                            self.code.push(Opcode::Div(b_target.clone()));
 
                             self.free_target(eax_target.clone());
                             self.free_target(edx_target);
                             self.free_value(ret);
+                            self.unreserve(&b_target);
                             self.put_into_target(ret, &eax_target);
                         }
                         (BinOp::Mod, _) => {
-                            let a_target = self.get_reg_target(a);
-                            self.dump_to_memory(&a_target);
+                            let a_target = self.get_target(a);
                             let eax_target = Target::Reg(EAX);
                             if a_target != eax_target {
-                                self.make_reg_free(eax_target.clone());
-                                self.code.push(Opcode::Mov(eax_target.clone(), a_target.clone()));
+                                self.move_value(a_target.clone(), eax_target.clone());
                             }
+                            self.make_copy_if_needed(&eax_target);
+
                             let edx_target = Target::Reg(EDX);
-                            self.make_reg_free(edx_target.clone());
+                            self.make_free(&edx_target);
+                            self.all_registers.insert(EDX, Reserved);
+
                             self.code.push(Opcode::Special("cqo".to_string()));
 
-                            let b_target = self.get_target(b);
-                            self.code.push(Opcode::Div(b_target));
+                            let b_target = self.get_reg_target(b);
+                            self.code.push(Opcode::Div(b_target.clone()));
 
                             self.free_target(eax_target.clone());
                             self.free_target(edx_target.clone());
                             self.free_value(ret);
+                            self.unreserve(&b_target);
                             self.put_into_target(ret, &edx_target);
                         }
                         (BinOp::Sub, _) => {
                             let a_target = self.get_reg_target(a);
-                            self.dump_to_memory(&a_target);
+                            self.make_copy_if_needed(&a_target);
                             let b_target = self.get_target(b);
                             self.code.push(Opcode::Sub(a_target.clone(), b_target));
                             self.free_target(a_target.clone());
@@ -402,15 +442,6 @@ impl AssemblerTransformer {
                             let f_target = Target::Reg(f);
                             self.code.push(Opcode::Mov(f_target.clone(), v_target));
                             self.code.push(Opcode::Neg(f_target.clone()));
-                            self.free_value(r);
-                            self.put_into_target(r, &f_target);
-                        }
-                        UnOp::BoolNeg => {
-                            let v_target = self.get_target(v);
-                            let f = self.get_free_register();
-                            let f_target = Target::Reg(f);
-                            self.code.push(Opcode::Mov(f_target.clone(), v_target));
-                            self.code.push(Opcode::Not(f_target.clone()));
                             self.free_value(r);
                             self.put_into_target(r, &f_target);
                         }
@@ -437,7 +468,7 @@ impl AssemblerTransformer {
                 Instr::Copy(t, v) => {
                     match v {
                         Value::Register(r) => {
-                            match (self.to_register.get(r).cloned(), self.to_memory.get(r).cloned()) {
+                            match (self.maybe_register_target(r), self.maybe_memory_target(r)) {
                                 (None, None) => {
                                     panic!("Where is source of assignment?")
                                 }
@@ -488,7 +519,8 @@ impl AssemblerTransformer {
                     self.dump_all();
                     let x_reg = self.get_reg_target(x);
                     let y_reg = self.get_target(y);
-                    self.code.push(Opcode::Cmp(x_reg, y_reg));
+                    self.code.push(Opcode::Cmp(x_reg.clone(), y_reg));
+                    self.unreserve(&x_reg);
                     match o {
                         RelOp::LT => self.code.push(Opcode::Jlt(t.clone())),
                         RelOp::LE => self.code.push(Opcode::Jle(t.clone())),
@@ -509,10 +541,6 @@ impl AssemblerTransformer {
                     if args.len() > 0 { // remove args
                         self.code.push(Opcode::Add(Target::Reg(ESP), Target::Imm(8 * args.len() as i32)))
                     }
-                    let all_regs = self.all_registers.clone();
-                    for reg in all_regs.into_iter() {
-                        self.make_reg_free(Target::Reg(reg));
-                    }
                     if ret.itype != IType::Void {
                         self.free_value(ret);
                         self.put_into_target(ret, &Target::Reg(EAX))
@@ -521,19 +549,19 @@ impl AssemblerTransformer {
                 Instr::Return(v) => {
                     match v {
                         Value::Register(r) => {
-                            match (self.to_register.get(r).cloned(), self.to_memory.get(r)) {
+                            match (self.maybe_register_target(r), self.maybe_memory_target(r)) {
                                 (Some(reg), _)  if reg == EAX => {}
                                 (Some(reg), _) => {
                                     let v_target = Target::Reg(reg.clone());
                                     let ret_target = Target::Reg(EAX);
-                                    self.make_reg_free(ret_target.clone());
+                                    self.make_free(&ret_target);
                                     self.put_into_target(r, &ret_target);
                                     self.code.push(Opcode::Mov(ret_target, v_target));
                                 }
                                 (_, Some(mem)) => {
                                     let v_target = Target::Memory(mem.clone());
                                     let ret_target = Target::Reg(EAX);
-                                    self.make_reg_free(ret_target.clone());
+                                    self.make_free(&ret_target);
                                     self.put_into_target(r, &ret_target);
                                     self.code.push(Opcode::Mov(ret_target, v_target));
                                 }
@@ -542,18 +570,18 @@ impl AssemblerTransformer {
                         }
                         Value::Int(i) => {
                             let ret_target = Target::Reg(EAX);
-                            self.make_reg_free(ret_target.clone());
+                            self.make_free(&ret_target);
                             self.code.push(Opcode::Mov(ret_target, Target::Imm(*i)))
                         }
                         Value::String(s) => {
                             let ret_target = Target::Reg(EAX);
-                            self.make_reg_free(ret_target.clone());
+                            self.make_free(&ret_target);
                             let s = self.alloc_string(s);
                             self.code.push(Opcode::Mov(ret_target, Target::Label(s)));
                         }
                         Value::Bool(b) => {
                             let ret_target = Target::Reg(EAX);
-                            self.make_reg_free(ret_target.clone());
+                            self.make_free(&ret_target);
                             self.code.push(Opcode::Mov(ret_target, Target::Imm(if *b { 1 } else { 0 })))
                         }
                     }
@@ -598,7 +626,7 @@ mod tests {
         let regs = Vec::from_iter(regs_set);
         let mut i = 0;
         for v in vars.iter() {
-            assembler_transformer.memory.insert(v.clone(), Target::Memory(Memory::new(i)));
+            assembler_transformer.memory.insert(v.clone(), Memory::new(i));
             i += 4;
         }
 
@@ -614,22 +642,20 @@ mod tests {
         assembler_transformer.put_into_target(&vars[0], &Target::Reg(regs[0].clone()));
 
         println!("usage {:?}", assembler_transformer.usage);
-        println!("to_memory {:?}", assembler_transformer.to_memory);
-        println!("to_register {:?}", assembler_transformer.to_register);
+        println!("to_target {:?}", assembler_transformer.to_target);
         println!("to_value {:?}", assembler_transformer.to_value);
 
         let reg = assembler_transformer.get_free_register();
 
         println!("usage {:?}", assembler_transformer.usage);
-        println!("to_memory {:?}", assembler_transformer.to_memory);
-        println!("to_register {:?}", assembler_transformer.to_register);
+        println!("to_target {:?}", assembler_transformer.to_target);
         println!("to_value {:?}", assembler_transformer.to_value);
 
-        assert_eq!(assembler_transformer.to_memory[&vars[3]].displacement, 12);
-        assert_eq!(assembler_transformer.to_memory[&vars[2]].displacement, 8);
-        assert_eq!(assembler_transformer.to_memory[&vars[1]].displacement, 4);
-        assert_eq!(assembler_transformer.to_memory.get(&vars[0]), None);
-        assert_eq!(assembler_transformer.to_register.get(&vars[3]), None);
+        assert!(assembler_transformer.is_in_correct_memory(&vars[3]));
+        assert!(assembler_transformer.is_in_correct_memory(&vars[2]));
+        assert!(assembler_transformer.is_in_correct_memory(&vars[1]));
+        assert_eq!(assembler_transformer.maybe_memory_target(&vars[0]), None);
+        assert_eq!(assembler_transformer.maybe_register_target(&vars[3]), None);
         assert_eq!(reg, regs[1])
     }
 
@@ -645,7 +671,7 @@ mod tests {
         let regs = Vec::from_iter(regs_set);
         let mut i = 0;
         for v in vars.iter() {
-            assembler_transformer.memory.insert(v.clone(), Target::Memory(Memory::new(i)));
+            assembler_transformer.memory.insert(v.clone(), Memory::new(i));
             i += 4;
         }
 
@@ -662,14 +688,14 @@ mod tests {
             assembler_transformer.put_into_target(v, &Target::Reg(r.clone()));
         }
 
-        assert_eq!(assembler_transformer.to_register[&vars[0]], regs[0]);
-        assert_eq!(assembler_transformer.to_memory[&vars[0]].displacement, 4);
+        assert_eq!(assembler_transformer.maybe_register_target(&vars[0]), Some(regs[0].clone()));
+        assert!(!assembler_transformer.is_in_correct_memory(&vars[0]));
 
         let reg = assembler_transformer.get_free_register();
 
-        assert_eq!(assembler_transformer.to_memory[&vars[3]].displacement, 12);
-        assert_eq!(assembler_transformer.to_memory.get(&vars[2]), None);
-        assert_eq!(assembler_transformer.to_register.get(&vars[3]), None);
+        assert!(assembler_transformer.is_in_correct_memory(&vars[3]));
+        assert_eq!(assembler_transformer.maybe_memory_target(&vars[2]), None);
+        assert_eq!(assembler_transformer.maybe_register_target(&vars[3]), None);
         assert_eq!(reg, regs[3])
     }
 
@@ -686,7 +712,7 @@ mod tests {
 
         let mut i = 0;
         for v in vars.iter() {
-            assembler_transformer.memory.insert(v.clone(), Target::Memory(Memory::new(i)));
+            assembler_transformer.memory.insert(v.clone(), Memory::new(i));
             i += 4;
         }
 

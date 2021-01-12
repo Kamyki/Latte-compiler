@@ -195,7 +195,7 @@ impl<'a> FunctionAnalyser<'a> {
                 Some(false) => self.check_block(while_true).and(Ok(err)),
                 _ => self.check_block(while_true).map(|b| b || err)
             }),
-            IStmt::Expr(e) => self.check_expr(e).and(Ok(false)),
+            IStmt::Expr(e) => self.check_expr(e).and_then(|(_, err)| Ok(err)),
         }
     }
 
