@@ -641,15 +641,7 @@ mod tests {
         assembler_transformer.free_target(Target::Reg(regs[0].clone()));
         assembler_transformer.put_into_target(&vars[0], &Target::Reg(regs[0].clone()));
 
-        println!("usage {:?}", assembler_transformer.usage);
-        println!("to_target {:?}", assembler_transformer.to_target);
-        println!("to_value {:?}", assembler_transformer.to_value);
-
         let reg = assembler_transformer.get_free_register();
-
-        println!("usage {:?}", assembler_transformer.usage);
-        println!("to_target {:?}", assembler_transformer.to_target);
-        println!("to_value {:?}", assembler_transformer.to_value);
 
         assert!(assembler_transformer.is_in_correct_memory(&vars[3]));
         assert!(assembler_transformer.is_in_correct_memory(&vars[2]));
