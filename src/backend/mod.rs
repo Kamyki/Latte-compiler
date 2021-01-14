@@ -8,16 +8,27 @@ use std::collections::HashSet;
 use std::iter::FromIterator;
 use crate::model::assembler::Register::*;
 use crate::model::assembler::Opcode;
+use crate::backend::lcse_optimizer::LCSEOptimizer;
 
 mod quadruple_code_transformer;
 mod assembler_transformer;
+mod lcse_optimizer;
 
 
 pub fn transform(maps: Maps, ast: &mut Program) -> CheckerResult<(ControlFlowGraph, Vec<Opcode>)> {
+    let lcse = false;
+
     let mut transformer = QuadrupleCodeTransformer::new(maps);
 
     // println!("{:?}", ast);
     let mut graph = transformer.transform(ast);
+
+    let mut lcse_optimizer = LCSEOptimizer::new();
+
+    if lcse {
+        lcse_optimizer.optimize(&mut graph);
+
+    }
 
     liveliness_analysis(&mut graph);
     // println!("functions: {:?}", graph.functions);

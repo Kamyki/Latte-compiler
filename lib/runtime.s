@@ -9,8 +9,9 @@ global error
 global readInt
 global readString
 global _concatString
+global _cmpString
 
-extern printf, scanf, exit, getchar, realloc, malloc, strlen, memcpy, fflush
+extern printf, scanf, exit, getchar, realloc, malloc, strlen, memcpy, fflush, strcmp
 
 
 
@@ -167,6 +168,23 @@ not_malloc:
 push qword [rel __alloc_error]
 call printString
 call error
+
+
+_cmpString:
+push rbp
+mov rbp, rsp
+and rsp, -16
+
+mov rdi, [rbp + 16]
+mov rsi, [rbp + 24]
+call strcmp
+test rax, rax
+setz al
+
+mov rsp, rbp
+pop rbp
+ret
+
 
 __alloc_error db 'Memory allocation error',0x0a,0
 __int_format db '%ld',0x0a,0

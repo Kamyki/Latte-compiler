@@ -4,7 +4,7 @@ use crate::backend::quadruple_code_transformer::QuadrupleCodeTransformer::Root;
 use crate::frontend::global_analyser::FunctionSignature;
 use crate::frontend::Maps;
 use crate::model::ast::{Block, Expr, Function, IBinOp, Id, IExpr, IStmt, Item, IType, Program, Target, TopDef, UnOp as Unary};
-use crate::model::quadruple_code::{ControlFlowGraph, Instr, Label, Reg, UnOp, Value, BinOp};
+use crate::model::quadruple_code::{ControlFlowGraph, Instr, Label, Reg, UnOp, Value, BinOp, If, RelOp};
 use crate::model::quadruple_code::Instr::Jump;
 use crate::model::quadruple_code::RelOp::EQ;
 
@@ -345,7 +345,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                 None => Value::Register(self.find_var(&v)),
                 Some((t, f)) => {
                     let val = self.find_var(&v);
-                    graph.push(Instr::If(Value::Register(val.clone()), EQ, Value::Bool(true), t.clone(), f.clone()));
+                    graph.push(Instr::If(If(Value::Register(val.clone()), EQ, Value::Bool(true), t.clone(), f.clone())));
                     Value::Register(val)
                 }
             }
@@ -374,7 +374,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                 graph.push(Instr::Call(reg.clone(), id.item.clone(), call_args));
                 match cond {
                     None => {}
-                    Some((t, f)) => graph.push(Instr::If(Value::Register(reg.clone()), EQ, Value::Bool(true), t.clone(), f.clone()))
+                    Some((t, f)) => graph.push(Instr::If(If(Value::Register(reg.clone()), EQ, Value::Bool(true), t.clone(), f.clone())))
                 }
                 Value::Register(reg)
             }
@@ -456,7 +456,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                         graph.begin_block(m);
                         graph.close_block();
                         self.transform_expr(graph, r, Some((&t, &f)))
-                    },
+                    }
                     _ => {
                         graph.begin_block(m);
                         self.transform_expr(graph, r, Some((&t, &f)));
@@ -534,7 +534,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                         graph.begin_block(m);
                         graph.close_block();
                         self.transform_expr(graph, r, Some((&t, &f)))
-                    },
+                    }
                     _ => {
                         graph.begin_block(m);
                         self.transform_expr(graph, r, Some((&t, &f)));
@@ -556,7 +556,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                 let v2 = self.transform_expr(graph, r, None);
                 let reg = Reg::new(IType::Boolean, self.new_label());
 
-                graph.push(Instr::If(v1.clone(), o.clone().into(), v2.clone(), label_true.clone(), label_false.clone()));
+                graph.push(Instr::If(If(v1.clone(), o.clone().into(), v2.clone(), label_true.clone(), label_false.clone())));
 
                 graph.begin_block(label_false);
                 graph.push(Instr::Copy(reg.clone(), Value::Bool(false)));
@@ -575,7 +575,14 @@ impl<'a> QuadrupleCodeTransformer<'a> {
             Some((t, f)) => {
                 let v1 = self.transform_expr(graph, l, None);
                 let v2 = self.transform_expr(graph, r, None);
-                graph.push(Instr::If(v1.clone(), o.clone().into(), v2.clone(), t.clone(), f.clone()));
+                match (&v1,&o) {
+                    (Value::String(_), IBinOp::EQ) |
+                    (Value::Register(Reg { itype: IType::String, .. }), IBinOp::EQ) => {
+                        graph.push(Instr::If(If(v1.clone(), RelOp::CMP, v2.clone(), t.clone(), f.clone())));
+                    }
+                    _ => graph.push(Instr::If(If(v1.clone(), o.clone().into(), v2.clone(), t.clone(), f.clone()))),
+
+                }
 
                 v1
             }

@@ -127,7 +127,6 @@ pub enum Opcode {
     Xchng(Target, Target),
     Ret,
     Special(String),
-    Not(Target),
     Neg(Target),
 }
 
@@ -167,7 +166,6 @@ impl Display for Opcode {
             Opcode::Xchng(a, b) => write!(f, "xchmg {} {}", a, b),
             Opcode::Ret => write!(f, "ret"),
             Opcode::Special(s) => write!(f, "{}", s),
-            Opcode::Not(a) => write!(f, "test {}, {}\nsetz {} ", a, a, a),
             Opcode::Neg(a) => write!(f, "neg {}", a),
         }
     }

@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::iter::FromIterator;
 
 use crate::model::ast::{IType, IBinOp};
+use std::hash::Hash;
 
 #[derive(Debug)]
 pub struct ControlFlowGraph {
@@ -32,7 +33,7 @@ impl ControlFlowGraph {
 
     pub fn extend(&mut self, code: Vec<Instr>) {
         if let Some((_, b)) = self.current_block.last_mut() {
-            b.code.extend(code.into_iter().map(|i| (i, HashSet::new(), HashSet::new())));
+            b.code.extend(code.into_iter().map(|i| i.into()));
         }
     }
 
@@ -41,11 +42,11 @@ impl ControlFlowGraph {
             if let Instr::Jump(l) = &code {
                 b.jumps.insert(l.clone());
             }
-            if let Instr::If(_, _, _, t, f) = &code {
+            if let Instr::If(If(_, _, _, t, f)) = &code {
                 b.jumps.insert(t.clone());
                 b.jumps.insert(f.clone());
             }
-            b.code.push((code, HashSet::new(), HashSet::new()));
+            b.code.push(code.into());
         }
     }
 
@@ -64,12 +65,12 @@ impl ControlFlowGraph {
     pub fn locals(&self, function: &String) -> Vec<Reg> {
         let mut reg = HashSet::new();
         for (_, block) in self.iter_fun(function) {
-            reg.extend(block.code.iter().filter_map(|(i, _, _)| match i {
+            reg.extend(block.code.iter().filter_map(|Instruction(i, _, _)| match i {
                 Instr::Asg2(r, _, _, _) => Some(r),
                 Instr::Asg1(r, _, _) => Some(r),
                 Instr::Copy(r, _) => Some(r),
                 Instr::Jump(_) => None,
-                Instr::If(_, _, _, _, _) => None,
+                Instr::If(_) => None,
                 Instr::Call(r, _, _) => Some(r),
                 Instr::Return(_) => None,
                 Instr::VReturn => None,
@@ -98,15 +99,15 @@ impl ControlFlowGraph {
         }
     }
 
-    fn update_iteration(&mut self, label: &Label, prev_in: &HashSet<Reg>, prev_out: &HashSet<Reg>) -> bool  {
+    fn update_iteration(&mut self, label: &Label, prev_in: &HashSet<Reg>, prev_out: &HashSet<Reg>) -> bool {
         let mut all_ins = vec![];
 
         for j in self.blocks.get(label).unwrap().jumps.iter() {
-            all_ins.push(self.blocks.get(j).unwrap().code.first().map_or(HashSet::new(), |x| x.1.clone()))
+            all_ins.push(self.blocks.get(j).unwrap().code.first().map_or(HashSet::new(), |x| x.1.0.clone()))
         }
         let block = self.blocks.get_mut(label).unwrap();
-        for i  in all_ins {
-            block.code.last_mut().map_or(&mut HashSet::new(), |x| &mut x.2).extend(i);
+        for i in all_ins {
+            block.code.last_mut().map_or(&mut HashSet::new(), |x| &mut x.1.1).extend(i);
         }
         *prev_in != block.ins() || *prev_out != block.outs()
     }
@@ -127,7 +128,7 @@ mod tests {
         cfg.close_block();
 
         cfg.begin_block("l1".to_string());
-        cfg.push(Instr::Asg2(Reg::new(IType::Int, "v1".to_string()), Value::Int(1), BinOp::Add,  Value::Register(Reg::new(IType::Int, "v0".to_string()))));
+        cfg.push(Instr::Asg2(Reg::new(IType::Int, "v1".to_string()), Value::Int(1), BinOp::Add, Value::Register(Reg::new(IType::Int, "v0".to_string()))));
         cfg.push(Instr::Asg2(Reg::new(IType::Int, "v2".to_string()), Value::Int(1), BinOp::Add, Value::Register(Reg::new(IType::Int, "v1".to_string()))));
         cfg.push(Instr::Asg2(Reg::new(IType::Int, "v3".to_string()), Value::Int(1), BinOp::Add, Value::Register(Reg::new(IType::Int, "v2".to_string()))));
         cfg.push(Instr::Jump("l2".to_string()));
@@ -135,7 +136,7 @@ mod tests {
 
         cfg.begin_block("l2".to_string());
         cfg.push(Instr::Asg2(Reg::new(IType::Int, "v0".to_string()), Value::Int(2), BinOp::Mul, Value::Register(Reg::new(IType::Int, "v3".to_string()))));
-        cfg.push(Instr::If(Value::Int(2), RelOp::EQ, Value::Register(Reg::new(IType::Int, "v3".to_string())), "l3".to_string(), "l1".to_string()));
+        cfg.push(Instr::If(If(Value::Int(2), RelOp::EQ, Value::Register(Reg::new(IType::Int, "v3".to_string())), "l3".to_string(), "l1".to_string())));
         cfg.close_block();
 
         cfg.begin_block("l3".to_string());
@@ -204,8 +205,50 @@ impl<'a> ControlFlowGraph {
 }
 
 #[derive(Debug, Clone)]
+pub struct Instruction(pub Instr, pub (HashSet<Reg>, HashSet<Reg>), pub (HashSet<Reg>, HashSet<Reg>));
+
+impl From<Instr> for Instruction {
+    fn from(i: Instr) -> Self {
+        let mut defs = HashSet::new();
+        let mut vals = HashSet::new();
+        match &i {
+            Instr::Asg2(r, a, _, b) => {
+                defs.insert(r.clone());
+                vals.insert(a.clone());
+                vals.insert(b.clone());
+
+            }
+            Instr::Asg1(r, _, v) => {
+                defs.insert(r.clone());
+                vals.insert(v.clone());
+            }
+            Instr::Copy(r, v) => {
+                defs.insert(r.clone());
+                vals.insert(v.clone());
+            }
+            Instr::Jump(_) => {}
+            Instr::If(_) => {}
+            Instr::Call(r, _, vs) => {
+                defs.insert(r.clone());
+                vals.extend(vs.iter().cloned());
+            }
+            Instr::Return(v) => {
+                vals.insert(v.clone());
+            }
+            Instr::VReturn => {}
+        }
+        let used: HashSet<Reg> = vals.into_iter().filter_map(|v| if let Value::Register(r) = v {
+            Some(r)
+        } else {
+            None
+        }).collect();
+        Instruction(i, (HashSet::new(), HashSet::new()), (defs, used))
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct SimpleBlock {
-    pub code: Vec<(Instr, HashSet<Reg>, HashSet<Reg>)>,
+    pub code: Vec<Instruction>,
     pub jumps: HashSet<Label>,
 }
 
@@ -216,85 +259,27 @@ impl SimpleBlock {
             jumps: HashSet::new(),
         }
     }
+}
 
+//liveliness
+impl SimpleBlock {
     pub fn ins(&self) -> HashSet<Reg> {
-        self.code.first().map_or(HashSet::new(), |x| x.1.clone())
-
+        self.code.first().map_or(HashSet::new(), |x| x.1.0.clone())
     }
 
     pub fn outs(&self) -> HashSet<Reg> {
-        self.code.last().map_or(HashSet::new(), |x| x.2.clone())
+        self.code.last().map_or(HashSet::new(), |x| x.1.1.clone())
     }
 
     pub fn compute_block_liveliness(&mut self) {
-        let mut kill = HashSet::new();
-        let mut used = HashSet::new();
-
         let mut prev_in = None;
-        for (i, ins, outs) in self.code.iter_mut().rev() {
-            kill.clear();
-            used.clear();
-            match i {
-                Instr::Asg2(r, a, _, b) => {
-                    kill.insert(r.clone());
-                    match a {
-                        Value::Register(r_v) => used.insert(r_v.clone()),
-                        _ => false,
-                    };
-                    match b {
-                        Value::Register(r_v) => used.insert(r_v.clone()),
-                        _ => false,
-                    };
-                }
-                Instr::Asg1(r, _, a) => {
-                    kill.insert(r.clone());
-                    match a {
-                        Value::Register(r_v) => used.insert(r_v.clone()),
-                        _ => false,
-                    };
-                }
-                Instr::Copy(r, b) => {
-                    kill.insert(r.clone());
-                    match b {
-                        Value::Register(r_v) => used.insert(r_v.clone()),
-                        _ => false,
-                    };
-                }
-                Instr::Jump(_) => {}
-                Instr::If(a, _, b, _, _) => {
-                    match a {
-                        Value::Register(r_v) => used.insert(r_v.clone()),
-                        _ => false,
-                    };
-                    match b {
-                        Value::Register(r_v) => used.insert(r_v.clone()),
-                        _ => false,
-                    };
-                }
-                Instr::Call(r, _, params) => {
-                    kill.insert(r.clone());
-                    for v in params.iter() {
-                        match v {
-                            Value::Register(r_v) => used.insert(r_v.clone()),
-                            _ => false,
-                        };
-                    };
-                }
-                Instr::Return(v) => {
-                    match v {
-                        Value::Register(r_v) => used.insert(r_v.clone()),
-                        _ => false,
-                    };
-                }
-                Instr::VReturn => {}
-            }
+        for Instruction(_, (ins, outs), (defs, used)) in self.code.iter_mut().rev() {
             if let Some(p) = prev_in.take() {
                 *outs = p;
             }
-            *ins = HashSet::from_iter(outs.difference(&kill).cloned());
+            *ins = HashSet::from_iter(outs.difference(&defs).cloned());
             ins.extend(used.clone());
             prev_in = Some(ins.clone());
-
         }
     }
 }
@@ -317,48 +302,53 @@ mod block_tests {
         let x4 = Reg::new(IType::Int, "x4".to_string());
         let v = Reg::new(IType::Int, "v".to_string());
 
-        block.code.push((Instr::Copy(a1.clone(), Value::Int(1)), HashSet::new(), HashSet::new()));
-        block.code.push((Instr::Copy(a2.clone(), Value::Int(1)), HashSet::new(), HashSet::new()));
-        block.code.push((Instr::Copy(a3.clone(), Value::Int(1)), HashSet::new(), HashSet::new()));
-        block.code.push((Instr::Copy(a4.clone(), Value::Int(1)), HashSet::new(), HashSet::new()));
-        block.code.push((Instr::Copy(a5.clone(), Value::Int(1)), HashSet::new(), HashSet::new()));
-        block.code.push((Instr::Asg2(x1.clone(),  Value::Register(a1.clone()), BinOp::Add, Value::Register(a2.clone())), HashSet::new(), HashSet::new()));
-        block.code.push((Instr::Asg2(x2.clone(),  Value::Register(x1.clone()), BinOp::Add, Value::Register(a3.clone())), HashSet::new(), HashSet::new()));
-        block.code.push((Instr::Asg2(x3.clone(),  Value::Register(x2.clone()), BinOp::Add, Value::Register(a4.clone())), HashSet::new(), HashSet::new()));
-        block.code.push((Instr::Asg2(x4.clone(),  Value::Register(x2.clone()), BinOp::Add, Value::Register(a5.clone())), HashSet::new(), HashSet::new()));
-        block.code.push((Instr::Call(v.clone(), "printInt".to_string(), vec![Value::Register(x4.clone())]), HashSet::new(), HashSet::new()));
-        block.code.push((Instr::Return(Value::Int(0)), HashSet::new(), HashSet::new()));
+        block.code.push(Instr::Copy(a1.clone(), Value::Int(1)).into());
+        block.code.push(Instr::Copy(a2.clone(), Value::Int(1)).into());
+        block.code.push(Instr::Copy(a3.clone(), Value::Int(1)).into());
+        block.code.push(Instr::Copy(a4.clone(), Value::Int(1)).into());
+        block.code.push(Instr::Copy(a5.clone(), Value::Int(1)).into());
+
+        block.code.push(Instr::Asg2(x1.clone(), Value::Register(a1.clone()), BinOp::Add, Value::Register(a2.clone())).into());
+        block.code.push(Instr::Asg2(x2.clone(), Value::Register(x1.clone()), BinOp::Add, Value::Register(a3.clone())).into());
+        block.code.push(Instr::Asg2(x3.clone(), Value::Register(x2.clone()), BinOp::Add, Value::Register(a4.clone())).into());
+        block.code.push(Instr::Asg2(x4.clone(), Value::Register(x3.clone()), BinOp::Add, Value::Register(a5.clone())).into());
+
+        block.code.push(Instr::Call(v.clone(), "printInt".to_string(), vec![Value::Register(x4.clone())]).into());
+        block.code.push(Instr::Return(Value::Int(0)).into());
 
         block.compute_block_liveliness();
         assert!(block.ins().is_empty());
         assert!(block.outs().is_empty());
-        assert!(block.code[1].1.contains(&a1));
-        assert!(block.code[1].2.contains(&a2));
-        assert!(block.code[5].1.contains(&a1));
-        assert!(block.code[5].1.contains(&a2));
-        assert!(block.code[5].1.contains(&a3));
-        assert!(block.code[5].1.contains(&a4));
-        assert!(block.code[5].1.contains(&a5));
-        assert!(block.code[5].2.contains(&x1));
-        assert!(block.code[5].2.contains(&a3));
-        assert!(block.code[5].2.contains(&a4));
-        assert!(block.code[5].2.contains(&a5));
+        assert!(block.code[1].1.0.contains(&a1));
+        assert!(block.code[1].1.1.contains(&a2));
+        assert!(block.code[5].1.0.contains(&a1));
+        assert!(block.code[5].1.0.contains(&a2));
+        assert!(block.code[5].1.0.contains(&a3));
+        assert!(block.code[5].1.0.contains(&a4));
+        assert!(block.code[5].1.0.contains(&a5));
+        assert!(block.code[5].1.1.contains(&x1));
+        assert!(block.code[5].1.1.contains(&a3));
+        assert!(block.code[5].1.1.contains(&a4));
+        assert!(block.code[5].1.1.contains(&a5));
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Instr {
     Asg2(Reg, Value, BinOp, Value),
     Asg1(Reg, UnOp, Value),
     Copy(Reg, Value),
     Jump(Label),
-    If(Value, RelOp, Value, Label, Label),
+    If(If),
     Call(Reg, Label, Vec<Value>),
     Return(Value),
     VReturn,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct If(pub Value, pub RelOp, pub Value, pub Label, pub Label);
+
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum RelOp {
     LT,
     LE,
@@ -366,6 +356,25 @@ pub enum RelOp {
     GE,
     EQ,
     NE,
+    CMP,
+}
+
+impl RelOp {
+    pub fn perform(&self, a: &Value, b: &Value) -> Option<bool> {
+        match (a, self, b) {
+            (Value::Int(i), RelOp::EQ, Value::Int(j)) => Some(i == j),
+            (Value::String(i), RelOp::EQ, Value::String(j)) => Some(i == j),
+            (Value::Bool(i), RelOp::EQ, Value::Bool(j)) => Some(i == j),
+            (Value::Int(i), RelOp::NE, Value::Int(j)) => Some(i != j),
+            (Value::String(i), RelOp::NE, Value::String(j)) => Some(i != j),
+            (Value::Bool(i), RelOp::NE, Value::Bool(j)) => Some(i != j),
+            (Value::Int(i), RelOp::LT, Value::Int(j)) => Some(i < j),
+            (Value::Int(i), RelOp::LE, Value::Int(j)) => Some(i <= j),
+            (Value::Int(i), RelOp::GT, Value::Int(j)) => Some(i > j),
+            (Value::Int(i), RelOp::GE, Value::Int(j)) => Some(i >= j),
+            _ => None,
+        }
+    }
 }
 
 impl From<IBinOp> for RelOp {
@@ -382,7 +391,7 @@ impl From<IBinOp> for RelOp {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum BinOp {
     Add,
     Mul,
@@ -405,12 +414,36 @@ impl From<IBinOp> for BinOp {
     }
 }
 
+impl BinOp {
+    pub(crate) fn perform(&self, a: &Value, b: &Value) -> Option<i32> {
+        match (a, self, b) {
+            (Value::Int(i), BinOp::Add, Value::Int(j)) => Some(i + j),
+            (Value::Int(i), BinOp::Mul, Value::Int(j)) => Some(i * j),
+            (Value::Int(i), BinOp::Div, Value::Int(j)) => Some(i / j),
+            (Value::Int(i), BinOp::Mod, Value::Int(j)) => Some(i % j),
+            (Value::Int(i), BinOp::Sub, Value::Int(j)) => Some(i - j),
+            _ => None,
+        }
+    }
+}
 
-#[derive(Debug, Clone)]
+
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum UnOp {
     IntNeg,
     Incr,
     Decr,
+}
+
+impl UnOp {
+    pub(crate) fn perform(&self, v: &Value) -> Option<i32> {
+        match (v, self) {
+            (Value::Int(i), UnOp::IntNeg) => Some(-*i),
+            (Value::Int(i), UnOp::Incr) => Some(i + 1),
+            (Value::Int(i), UnOp::Decr) => Some(i - 1),
+            _ => None
+        }
+    }
 }
 
 pub type Label = String;
