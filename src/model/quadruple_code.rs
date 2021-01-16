@@ -103,7 +103,7 @@ impl ControlFlowGraph {
         let mut all_ins = vec![];
 
         for j in self.blocks.get(label).unwrap().jumps.iter() {
-            all_ins.push(self.blocks.get(j).unwrap().code.first().map_or(HashSet::new(), |x| x.1.0.clone()))
+            all_ins.push(self.blocks.get(j).unwrap().ins())
         }
         let block = self.blocks.get_mut(label).unwrap();
         for i in all_ins {
@@ -227,7 +227,10 @@ impl From<Instr> for Instruction {
                 vals.insert(v.clone());
             }
             Instr::Jump(_) => {}
-            Instr::If(_) => {}
+            Instr::If(If(a, _, b, _, _)) => {
+                vals.insert(a.clone());
+                vals.insert(b.clone());
+            }
             Instr::Call(r, _, vs) => {
                 defs.insert(r.clone());
                 vals.extend(vs.iter().cloned());

@@ -520,13 +520,13 @@ impl AssemblerTransformer {
 
                 }
                 Instr::If(If(x, o, y, t, f)) => {
-                    self.dump_all(None);
                     let x_target = self.get_reg_target(x);
                     let y_target = self.get_target(y);
                     // USE_REGISTERS: let y_target = self.get_reg_target(y);
                     self.code.push(Opcode::Cmp(x_target.clone(), y_target.clone()));
                     self.commit_register(&x_target);
                     self.commit_register(&y_target);
+                    self.dump_all(None);
                     match o {
                         RelOp::LT => self.code.push(Opcode::Jlt(t.clone())),
                         RelOp::LE => self.code.push(Opcode::Jle(t.clone())),

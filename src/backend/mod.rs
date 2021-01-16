@@ -27,7 +27,6 @@ pub fn transform(maps: Maps, ast: &mut Program) -> CheckerResult<(ControlFlowGra
 
     if lcse {
         lcse_optimizer.optimize(&mut graph);
-
     }
 
     liveliness_analysis(&mut graph);
