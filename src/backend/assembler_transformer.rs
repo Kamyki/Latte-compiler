@@ -63,14 +63,14 @@ impl AssemblerTransformer {
 
     fn make_free(&mut self, reg: &Target) {
         for var in self.to_value.get(reg).cloned().unwrap_or(HashSet::new()).iter() {
-            self.dump_to_memory(var);
+            self.dump_to_memory(var, false);
         }
         self.mark_free_target(reg);
     }
 
-    fn dump_to_memory(&mut self, var: &Reg) {
+    fn dump_to_memory(&mut self, var: &Reg, is_dump_all: bool) {
         let v_mem = self.memory[var].clone();
-        if self.outs.contains(var) && !self.is_in_correct_memory(var) {
+        if (self.outs.contains(var) || (!is_dump_all && self.used[0].contains(var))) && !self.is_in_correct_memory(var) {
             if let Some(r) = self.maybe_register_target(var) {
                 self.move_value(Target::Reg(r), Target::Memory(v_mem.clone()));
             } else if let Some(m) = self.maybe_memory_target(var) {
@@ -82,7 +82,7 @@ impl AssemblerTransformer {
     fn make_copy_if_needed(&mut self, target: &Target) {
         for var in self.to_value.get(target).cloned().unwrap_or_default().iter() {
             if self.to_target.entry(var.clone()).or_default().len() == 1 {
-                self.dump_to_memory(var);
+                self.dump_to_memory(var, false);
             }
         }
     }
@@ -112,7 +112,7 @@ impl AssemblerTransformer {
     fn dump_all(&mut self, call_ret: Option<&Reg>) {
         let vars: Vec<Reg> = self.to_target.keys().cloned().collect();
         for var in vars {
-            self.dump_to_memory(&var);
+            self.dump_to_memory(&var, true);
         }
         for v in self.outs.iter().filter(|r| call_ret.map(|c| c != *r).unwrap_or(true)) {
             assert!(self.is_in_correct_memory(v));
@@ -153,7 +153,7 @@ impl AssemblerTransformer {
         }
         let vars: Vec<Reg> = self.to_value.entry(from).or_default().iter().cloned().collect();
         for var in vars.iter() {
-            self.put_into_target(var, &to);
+            self.put_into_target_move(var, &to);
         }
     }
 
@@ -193,7 +193,16 @@ impl AssemblerTransformer {
     }
 
     fn put_into_target(&mut self, var: &Reg, target: &Target) {
-        if self.outs.contains(var) {
+        self.put_into_target_bool(var, target, false)
+    }
+
+    fn put_into_target_move(&mut self, var: &Reg, target: &Target) {
+        self.put_into_target_bool(var, target, true)
+    }
+
+
+    fn put_into_target_bool(&mut self, var: &Reg, target: &Target, is_move: bool) {
+        if self.outs.contains(var) || (is_move && self.used[0].contains(var)) {
             match target {
                 Target::Reg(r) => {
                     self.to_target.entry(var.clone()).or_default().insert(TTarget::Reg(r.clone()));
@@ -451,6 +460,8 @@ impl AssemblerTransformer {
                     let a_target = self.get_target(a);
                     let eax_target = Target::Reg(EAX);
                     if a_target != eax_target {
+                        self.make_free(&eax_target);
+                        self.all_registers.insert(EAX, Reserved);
                         self.move_value(a_target.clone(), eax_target.clone());
                     }
                     self.make_copy_if_needed(&eax_target);
@@ -517,7 +528,6 @@ impl AssemblerTransformer {
                     self.code.push(Opcode::Cmp(Target::Reg(EAX).clone(), Target::Imm(1)));
                     self.code.push(Opcode::Je(t.clone()));
                     self.code.push(Opcode::Jmp(f.clone()));
-
                 }
                 Instr::If(If(x, o, y, t, f)) => {
                     let x_target = self.get_reg_target(x);
