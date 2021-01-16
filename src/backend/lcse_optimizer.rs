@@ -14,7 +14,7 @@ impl From<Instr> for Option<(Reg, Def)> {
     fn from(i: Instr) -> Self {
         match i {
             Instr::Asg2(r, a, o, b) => Some((r, Def::Bin(a, o, b))),
-            Instr::Asg1(r,o, a) => Some((r, Def::Un(o, a))),
+            Instr::Asg1(r, o, a) => Some((r, Def::Un(o, a))),
             Instr::Copy(r, v) => Some((r, Def::Copy(v))),
             _ => None,
         }
@@ -23,45 +23,95 @@ impl From<Instr> for Option<(Reg, Def)> {
 
 pub struct LCSEOptimizer {
     constants: HashMap<Reg, Value>,
-    definitions: HashMap<Def, Reg>,
+    _copies: HashMap<Reg, Reg>,
+
+    _definitions: HashMap<Def, Reg>,
+    strings: HashMap<u32, String>,
+    string_id: u32,
 
 }
 
 impl LCSEOptimizer {
     pub fn new() -> Self {
-        Self { constants: HashMap::new(), definitions: HashMap::new() }
+        Self {
+            constants: HashMap::new(),
+            _copies: HashMap::new(),
+            _definitions: HashMap::new(),
+            strings: HashMap::new(),
+            string_id: 0,
+        }
     }
 }
 
 impl LCSEOptimizer {
     pub fn optimize(&mut self, graph: &mut ControlFlowGraph) {
+        self.string_id = graph.strings.len() as u32;
+        self.strings.extend(graph.strings.drain());
         let blocks: Vec<(Label, SimpleBlock)> = graph.blocks.drain().collect();
         for (l, block) in blocks {
-            let new_block = self.optimize_block(&block);
+            let new_block = self.optimize_block(block);
             graph.blocks.insert(l, new_block);
         }
     }
 
-    fn optimize_block(&mut self, block: &SimpleBlock) -> SimpleBlock {
-        let (mut res, mut new_block) = self.const_optimize(block);
-        while res {
-            let (res1, new_block1) = self.const_optimize(&new_block);
-            res = res1;
-            new_block = new_block1;
+    fn optimize_block(&mut self, block: SimpleBlock) -> SimpleBlock {
+        let mut v = (true, block);
+        let mut v1;
+        while v.0 {
+            v1 = self.dead_code_optimize(v.1);
+            v = (v1.0, v1.1);
+            v1 = self.common_expr_optimize(v.1);
+            v = (v.0 | v1.0, v1.1);
+            v1 = self.const_optimize(v.1);
+            v = (v.0 | v1.0, v1.1);
+            v1 = self.copy_optimize(v.1);
+            v = (v.0 | v1.0, v1.1);
         }
-        new_block
+        v.1
     }
 
-    fn const_optimize(&mut self, block: &SimpleBlock) -> (bool, SimpleBlock) {
+    fn dead_code_optimize(&mut self, block: SimpleBlock) -> (bool, SimpleBlock) {
+        (false, block)
+    }
+
+    fn common_expr_optimize(&mut self, block: SimpleBlock) -> (bool, SimpleBlock) {
+        (false, block)
+    }
+
+    fn copy_optimize(&mut self, block: SimpleBlock) -> (bool, SimpleBlock) {
+        // let mut rest = false;
+        // let mut new_block = SimpleBlock::new();
+        // self.copies.clear();
+        // for old_i in block.code {
+        //     match &old_i.0 {
+        //         Instr::Asg2(_, _, _, _) => {}
+        //         Instr::Asg1(_, _, _) => {}
+        //         Instr::Copy(r, Value::Register(reg)) => {
+        //             let new_reg = if let Some(n) = self.copies.get(reg) {
+        //                 n.clone()
+        //             } else {
+        //                 reg.clone()
+        //             };
+        //             self.copies.insert(r.clone(), new_reg);
+        //             new_block.code.push(old_i.clone())
+        //         }
+        //         Instr::Jump(_) => {}
+        //         Instr::If(_) => {}
+        //         Instr::Call(_, _, _) => {}
+        //         Instr::Return(_) => {}
+        //         Instr::VReturn => {}
+        //     }
+        // }
+        (false, block)
+    }
+
+
+    fn const_optimize(&mut self, block: SimpleBlock) -> (bool, SimpleBlock) {
         let mut rest = false;
         let mut new_block = SimpleBlock::new();
-
+        self.constants.clear();
         for old_i in block.code.iter() {
             match &old_i.0 {
-                Instr::Asg2(_, _, BinOp::Concat, _) => {
-                    new_block.code.push(old_i.clone());
-                    todo!();
-                }
                 Instr::Asg2(r, a, o, b) => {
                     let new_a = if let Value::Register(reg1) = a {
                         self.constants.get(reg1).unwrap_or(a)
@@ -75,7 +125,17 @@ impl LCSEOptimizer {
                     };
                     match o.perform(new_a, new_b) {
                         None if r.itype == IType::String => {
-                            todo!();
+                            if let (Value::String(s1), Value::String(s2)) = (new_a, new_b) {
+                                let v = Value::String(self.string_id);
+                                let new_string = format!("{}{}", self.strings[s1], self.strings[s2]);
+                                self.strings.insert(self.string_id, new_string);
+                                self.string_id += 1;
+                                self.constants.insert(r.clone(), v.clone());
+                                new_block.code.push(Instr::Copy(r.clone(), v.clone()).into());
+                                rest = true;
+                            } else {
+                                new_block.code.push(old_i.clone());
+                            }
                         }
                         None => {
                             new_block.code.push(old_i.clone());
@@ -231,5 +291,32 @@ mod tests {
         optimizer.optimize(&mut cfg);
 
         assert_eq!(cfg.blocks["l1"].code.len(), 2);
+        assert_eq!(cfg.blocks["l1"].code[0].0, Instr::Call(v.clone(), "printInt".to_string(), vec![Value::Int(5)]));
+    }
+
+    #[test]
+    fn test_string() {
+        let mut cfg = ControlFlowGraph::new();
+        let a1 = Reg::new(IType::String, "a1".to_string());
+        let a2 = Reg::new(IType::String, "a2".to_string());
+        let x1 = Reg::new(IType::String, "x1".to_string());
+        let v = Reg::new(IType::Int, "v".to_string());
+        cfg.strings.extend(vec![(0, "kadabra".to_string()), (1, "abba".to_string())]);
+
+        cfg.begin_block("l1".to_string());
+        cfg.push(Instr::Copy(a1.clone(), Value::String(0)));
+        cfg.push(Instr::Copy(a2.clone(), Value::String(1)));
+
+        cfg.push(Instr::Asg2(x1.clone(), Value::Register(a1.clone()), BinOp::Concat, Value::Register(a2.clone())));
+
+        cfg.push(Instr::Call(v.clone(), "printString".to_string(), vec![Value::Register(x1.clone())]));
+        cfg.push(Instr::Return(Value::Int(0)));
+        cfg.close_block();
+
+        let mut optimizer = LCSEOptimizer::new();
+        optimizer.optimize(&mut cfg);
+
+        assert_eq!(cfg.blocks["l1"].code.len(), 2);
+        assert_eq!(cfg.blocks["l1"].code[0].0, Instr::Call(v.clone(), "printString".to_string(), vec![Value::String(2)]));
     }
 }
