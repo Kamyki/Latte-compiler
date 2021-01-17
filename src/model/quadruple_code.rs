@@ -216,7 +216,6 @@ impl From<Instr> for Instruction {
                 defs.insert(r.clone());
                 vals.insert(a.clone());
                 vals.insert(b.clone());
-
             }
             Instr::Asg1(r, _, v) => {
                 defs.insert(r.clone());
@@ -394,7 +393,7 @@ impl From<IBinOp> for RelOp {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum BinOp {
     Add,
     Mul,
@@ -431,7 +430,7 @@ impl BinOp {
 }
 
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum UnOp {
     IntNeg,
     Incr,

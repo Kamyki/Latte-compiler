@@ -16,7 +16,7 @@ mod lcse_optimizer;
 
 
 pub fn transform(maps: Maps, ast: &mut Program) -> CheckerResult<(ControlFlowGraph, Vec<Opcode>)> {
-    let lcse = false;
+    let lcse = true;
 
     let mut transformer = QuadrupleCodeTransformer::new(maps);
 
