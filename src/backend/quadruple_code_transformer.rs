@@ -31,11 +31,11 @@ impl<'a> QuadrupleCodeTransformer<'a> {
         let mut label = match self {
             QuadrupleCodeTransformer::Root { label_num, .. } => {
                 *label_num += 1;
-                format!("_{}", label_num)
+                format!("._{}", label_num)
             }
             QuadrupleCodeTransformer::Frame { label_num, num, current_name, .. } => {
                 *label_num += 1;
-                format!("_{}_{}_{}", current_name, label_num, num)
+                format!("._{}_{}_{}", current_name, label_num, num)
             }
         };
         let mut a = &*self;
@@ -360,7 +360,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
             IExpr::FunCall { name, args } => {
                 let mut call_args = vec![];
                 for arg in args {
-                    let v = self.transform_expr(graph, arg, cond);
+                    let v = self.transform_expr(graph, arg, None);
                     call_args.push(v);
                 }
                 let (id, reg) = match name {

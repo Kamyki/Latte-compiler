@@ -97,7 +97,7 @@ impl Display for Target {
                 result = result.and(write!(f, "{}", v.join(" ")));
                 result.and(write!(f, "]"))
             }
-            Target::Label(l) => write!(f, "{}", l)
+            Target::Label(l) => write!(f, "[rel {}]", l)
         }
     }
 }

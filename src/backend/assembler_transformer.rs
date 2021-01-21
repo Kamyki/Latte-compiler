@@ -284,6 +284,12 @@ impl AssemblerTransformer {
         let t = self.get_target(v);
         match t {
             Target::Reg(_) => t,
+            Target::Label(_) => {
+                let f_reg = self.get_free_register();
+                let f_target = Target::Reg(f_reg.clone());
+                self.code.push(Opcode::Special(format!("lea {}, {}", f_target, t)));
+                f_target
+            },
             _ => {
                 let f_reg = self.get_free_register();
                 let f_target = Target::Reg(f_reg.clone());
@@ -399,6 +405,7 @@ impl AssemblerTransformer {
     }
 
     fn transform_add_static_strings(&mut self, graph: &ControlFlowGraph) {
+        self.code.push(Opcode::Special(format!("section .data")));
         for (id, label) in self.strings.iter() {
             if let Some(s) = graph.strings.get(id) {
                 self.code.push(Opcode::Special(format!("{} db '{}',0", label, s)));
@@ -429,9 +436,9 @@ impl AssemblerTransformer {
 
             match instr {
                 Instr::Asg2(ret, a, BinOp::Concat, b) => {
-                    let b_target = self.get_target(b);
+                    let b_target = self.get_reg_target(b);
                     self.code.push(Opcode::Push(b_target));
-                    let a_target = self.get_target(a);
+                    let a_target = self.get_reg_target(a);
                     self.code.push(Opcode::Push(a_target));
                     self.dump_all(Some(ret));
                     self.code.push(Opcode::Call("_concatString".to_string()));
@@ -515,9 +522,9 @@ impl AssemblerTransformer {
                     self.code.push(Opcode::Jmp(l.clone()))
                 }
                 Instr::If(If(x, RelOp::CMP, y, t, f)) => {
-                    let y_target = self.get_target(y);
+                    let y_target = self.get_reg_target(y);
                     self.code.push(Opcode::Push(y_target.clone()));
-                    let x_target = self.get_target(x);
+                    let x_target = self.get_reg_target(x);
                     self.code.push(Opcode::Push(x_target.clone()));
                     self.commit_register(&x_target);
                     self.commit_register(&y_target);
@@ -550,8 +557,7 @@ impl AssemblerTransformer {
                 }
                 Instr::Call(ret, label, args) => {
                     for arg in args.clone().iter().rev() { // add args
-                        let a_target = self.get_target(arg);
-                        // USE_REGISTERS: let a_target = self.get_reg_target(arg);
+                        let a_target = self.get_reg_target(arg);
                         self.code.push(Opcode::Push(a_target.clone()));
                         self.commit_register(&a_target);
                     }
@@ -567,13 +573,14 @@ impl AssemblerTransformer {
                     }
                 }
                 Instr::Return(v) => {
-                    let v_target = self.get_target(v);
+                    let v_target = self.get_reg_target(v);
                     match &v_target {
                         Target::Reg(r) if *r == EAX => {}
                         _ => {
                             self.move_value(v_target.clone(), Target::Reg(EAX));
                         }
                     }
+                    self.mark_free_target(&v_target);
                     self.code.push(Opcode::Jmp(self.get_final_label()));
                 }
                 Instr::VReturn => {

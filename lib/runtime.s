@@ -11,9 +11,7 @@ global readString
 global _concatString
 global _cmpString
 
-extern printf, scanf, exit, getchar, realloc, malloc, strlen, memcpy, fflush, strcmp
-
-
+extern printf, scanf, getchar, realloc, malloc, strlen, memcpy, fflush, strcmp
 
 printInt:
 push rbp
@@ -22,9 +20,9 @@ and rsp, -16
 
 mov rsi, [rbp + 16]
 lea rdi, [rel __int_format]
-mov rax, 0
-
+xor rax, rax
 call printf
+xor rax, rax
 call fflush
 
 mov rsp, rbp
@@ -38,7 +36,9 @@ and rsp, -16
 
 mov rsi, [rbp + 16]
 lea rdi, [rel __string_format]
+xor rax, rax
 call printf
+xor rax, rax
 call fflush
 
 mov rsp, rbp
@@ -50,8 +50,15 @@ push rbp
 mov rbp, rsp
 and rsp, -16
 
+lea rdi, [rel __runtime_error]
+xor rax, rax
+call printf
+xor rax, rax
+call fflush
+
 mov rdi, 1
-call exit
+mov rax, 60
+syscall
 
 mov rsp, rbp
 pop rbp
@@ -84,19 +91,19 @@ mov r12, rax
 mov r13, 0
 mov r14, 32
 
-loop:
+.loop:
 cmp r13, r14
-je bigger
+je .bigger
 call getchar
 cmp rax, 0
-je final
+je .final
 cmp rax, 0x0a
-je final
+je .final
 mov [r12 + r13], rax
 inc r13
-jmp loop
+jmp .loop
 
-final:
+.final:
 mov byte [r12 + r13], 0
 mov rdi, r12
 mov rsi, r13
@@ -107,13 +114,13 @@ mov rsp, rbp
 pop rbp
 ret
 
-bigger:
+.bigger:
 mov rdi, r12
 shl r14, 1
 mov rsi, r14
 call realloc
 mov r12, rax
-jmp loop
+jmp .loop
 
 
 _concatString:
@@ -141,7 +148,7 @@ cdqe
 mov rdi, rax
 call malloc
 test rax, rax
-je not_malloc
+je .not_malloc
 mov r15, rax ; addr
 
 mov rdi, rax
@@ -164,11 +171,14 @@ mov rsp, rbp
 pop rbp
 ret
 
-not_malloc:
-push qword [rel __alloc_error]
+.not_malloc:
+lea rdi, [rel __alloc_error]
+push rdi
 call printString
-call error
 
+mov rdi, 1
+mov rax, 60
+syscall
 
 _cmpString:
 push rbp
@@ -185,7 +195,8 @@ mov rsp, rbp
 pop rbp
 ret
 
-
+section .data
 __alloc_error db 'Memory allocation error',0x0a,0
 __int_format db '%ld',0x0a,0
 __string_format db '%s',0x0a,0
+__runtime_error db 'runtime error',0x0a,0
