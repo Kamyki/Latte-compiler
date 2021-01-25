@@ -421,8 +421,8 @@ impl BinOp {
         match (a, self, b) {
             (Value::Int(i), BinOp::Add, Value::Int(j)) => Some(i + j),
             (Value::Int(i), BinOp::Mul, Value::Int(j)) => Some(i * j),
-            (Value::Int(i), BinOp::Div, Value::Int(j)) => Some(i / j),
-            (Value::Int(i), BinOp::Mod, Value::Int(j)) => Some(i % j),
+            (Value::Int(i), BinOp::Div, Value::Int(j)) if *j != 0 => Some(i / j),
+            (Value::Int(i), BinOp::Mod, Value::Int(j)) if *j != 0 => Some(i % j),
             (Value::Int(i), BinOp::Sub, Value::Int(j)) => Some(i - j),
             _ => None,
         }
