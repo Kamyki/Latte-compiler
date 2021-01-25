@@ -232,6 +232,10 @@ impl LCSEOptimizer {
                     let new_v = self.get_copy_or(v, &mut rest);
                     new_block.code.push(Instr::Return(new_v).into())
                 }
+                Instr::Insert(r, o, v) => {
+                    let new_v = self.get_copy_or(v, &mut rest);
+                    new_block.code.push(Instr::Insert(r, o, new_v).into())
+                }
                 _ => new_block.code.push(old_i),
             }
         }
@@ -339,12 +343,11 @@ impl LCSEOptimizer {
                     let new_a = self.get_const_or(a, &mut rest);
                     new_block.code.push(Instr::Return(new_a).into());
                 }
-                Instr::VReturn => {
-                    new_block.code.push(old_i.clone());
+                Instr::Insert(r, o, v) => {
+                    let new_v = self.get_const_or(v, &mut rest);
+                    new_block.code.push(Instr::Insert(r.clone(), o, new_v).into());
                 }
-                Instr::Extract(_, _, _) => todo!(),
-                Instr::Insert(_, _, _) => todo!(),
-                Instr::Cast(_, _) => todo!()
+                _=>  new_block.code.push(old_i.clone())
             }
         }
         (rest, new_block)
