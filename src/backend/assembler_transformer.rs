@@ -18,6 +18,7 @@ enum RegState {
 enum TTarget {
     Reg(Register),
     Mem(Memory),
+    Null,
 }
 
 #[derive(Debug)]
@@ -109,6 +110,13 @@ impl AssemblerTransformer {
         }).next().cloned()
     }
 
+    fn maybe_null_target(&self, reg: &Reg) -> bool {
+        self.to_target[reg].iter().filter(|t| match t {
+            TTarget::Null => true,
+            _ => false
+        }).next().is_some()
+    }
+
     fn dump_all(&mut self, call_ret: Option<&Reg>) {
         let vars: Vec<Reg> = self.to_target.keys().cloned().collect();
         for var in vars {
@@ -173,7 +181,8 @@ impl AssemblerTransformer {
                 let regs: Vec<Register> = self.to_target.get(used_reg).cloned().unwrap_or(HashSet::new()).into_iter()
                     .filter_map(|t| match t {
                         TTarget::Reg(rr) => Some(rr),
-                        TTarget::Mem(_) => None
+                        TTarget::Mem(_) => None,
+                        TTarget::Null => None
                     }).collect();
                 if regs.len() >= 2 {
                     return regs[0].clone();
@@ -210,6 +219,9 @@ impl AssemblerTransformer {
                 }
                 Target::Memory(m) => {
                     self.to_target.entry(var.clone()).or_default().insert(TTarget::Mem(m.clone()));
+                }
+                Target::Null => {
+                    self.to_target.entry(var.clone()).or_default().insert(TTarget::Null);
                 }
                 _ => panic!("Invalid target")
             }
@@ -248,10 +260,11 @@ impl AssemblerTransformer {
                     if vals.is_empty() {
                         self.all_registers.insert(r, Free);
                     }
-                }
+                },
                 TTarget::Mem(m) => {
                     self.to_value.entry(Target::Memory(m)).or_default().remove(reg);
-                }
+                },
+                TTarget::Null => {}
             }
         }
     }
@@ -264,6 +277,8 @@ impl AssemblerTransformer {
                     Target::Reg(reg.clone())
                 } else if let Some(mem) = self.maybe_memory_target(r) {
                     Target::Memory(mem.clone())
+                } else if self.maybe_null_target(r) {
+                   Target::Null
                 } else {
                     panic!("Cannot find this value")
                 }
@@ -276,6 +291,7 @@ impl AssemblerTransformer {
             Value::Bool(b) => {
                 if *b { Target::Imm(1) } else { Target::Imm(0) }
             }
+            Value::Null => Target::Null,
         }
     }
 
@@ -350,7 +366,11 @@ impl AssemblerTransformer {
                 self.to_target.clear();
                 self.to_value.clear();
                 for val in block.ins().iter() {
-                    let mem = self.memory[val].clone();
+                    let mem = if let Some(m) = self.memory.get(val) {
+                        m.clone()
+                    } else {
+                        panic!()
+                    };
                     self.to_target.insert(val.clone(), HashSet::from_iter(vec![TTarget::Mem(mem.clone())]));
                     self.to_value.insert(Target::Memory(mem.clone()), HashSet::from_iter(vec![val.clone()]));
                 }
@@ -368,7 +388,7 @@ impl AssemblerTransformer {
         self.code.extend(vec![
             Opcode::Special(format!("global _start")),
             Opcode::Special(format!("section .text")),
-            Opcode::Special(format!("extern {}, _concatString, _cmpString", built_ins.join(", "))),
+            Opcode::Special(format!("extern {}, _concatString, _cmpString, _alloc_size", built_ins.join(", "))),
             Opcode::Label(format!("_start")),
             Opcode::Call(format!("main")),
             Opcode::Mov(Target::Reg(EDI), Target::Reg(EAX)),
@@ -435,6 +455,32 @@ impl AssemblerTransformer {
             self.outs = outs.clone();
 
             match instr {
+                Instr::Cast(ret, v) => {
+                    self.mark_free_value(ret);
+                    let v_target = self.get_target(v);
+                    self.put_into_target(ret, &v_target);
+                }
+                Instr::Insert(obj, offset, v) => {
+                    let obj_addr = self.get_reg_target(obj);
+                    let v_target = self.get_reg_target(v);
+                    let lea_memory = Memory::from_target(&obj_addr, *offset as i32);
+                    self.code.push(Opcode::Mov(Target::Memory(lea_memory), v_target.clone()));
+
+                    self.commit_register(&obj_addr);
+                    self.commit_register(&v_target);
+                }
+                Instr::Extract(ret, obj, offset) => {
+                    let obj_addr = self.get_reg_target(obj);
+                    let f_reg = self.get_free_register();
+                    let f_target = Target::Reg(f_reg.clone());
+                    let lea_memory = Memory::from_target(&obj_addr, *offset as i32);
+                    self.code.push(Opcode::Mov(f_target.clone(), Target::Memory(lea_memory)));
+
+                    self.mark_free_value(ret);
+                    self.put_into_target(ret, &f_target);
+                    self.commit_register(&obj_addr);
+                    self.commit_register(&f_target);
+                }
                 Instr::Asg2(ret, a, BinOp::Concat, b) => {
                     let b_target = self.get_reg_target(b);
                     self.code.push(Opcode::Push(b_target));
@@ -468,8 +514,8 @@ impl AssemblerTransformer {
                     let eax_target = Target::Reg(EAX);
                     if a_target != eax_target {
                         self.make_free(&eax_target);
-                        self.all_registers.insert(EAX, Reserved);
                         self.move_value(a_target.clone(), eax_target.clone());
+                        self.all_registers.insert(EAX, Reserved);
                     }
                     self.make_copy_if_needed(&eax_target);
 

@@ -342,6 +342,9 @@ impl LCSEOptimizer {
                 Instr::VReturn => {
                     new_block.code.push(old_i.clone());
                 }
+                Instr::Extract(_, _, _) => todo!(),
+                Instr::Insert(_, _, _) => todo!(),
+                Instr::Cast(_, _) => todo!()
             }
         }
         (rest, new_block)

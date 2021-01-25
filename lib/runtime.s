@@ -10,8 +10,31 @@ global readInt
 global readString
 global _concatString
 global _cmpString
+global _alloc_size
 
 extern printf, scanf, getchar, realloc, malloc, strlen, memcpy, fflush, strcmp
+
+; alloc 1st_arg * 8bytes bytes for structure
+_alloc_size:
+push rbp
+mov rbp, rsp
+and rsp, -16
+
+mov rdi, [rbp + 16]
+imul rdi, 8
+call malloc
+test rax, rax
+je .not_malloc
+
+mov rsp, rbp
+pop rbp
+ret
+
+.not_malloc:
+lea rdi, [rel __alloc_error]
+push rdi
+call printString
+
 
 printInt:
 push rbp

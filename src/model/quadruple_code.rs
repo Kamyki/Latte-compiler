@@ -9,6 +9,7 @@ pub struct ControlFlowGraph {
     pub blocks: HashMap<Label, SimpleBlock>,
     pub liveness: HashMap<Label, (HashSet<Label>, HashSet<Label>)>,
     pub functions: HashMap<String, (Label, Vec<Reg>)>,
+    pub classes: HashMap<String, (Label, Vec<Reg>)>,
     pub builtin: HashMap<String, (Label, u32)>,
     pub strings: HashMap<u32, String>,
 
@@ -24,6 +25,7 @@ impl ControlFlowGraph {
             builtin: HashMap::new(),
             strings: HashMap::new(),
             liveness: HashMap::new(),
+            classes: HashMap::new(),
         }
     }
 
@@ -74,6 +76,9 @@ impl ControlFlowGraph {
                 Instr::Call(r, _, _) => Some(r),
                 Instr::Return(_) => None,
                 Instr::VReturn => None,
+                Instr::Extract(r, _, _) => Some(r),
+                Instr::Insert(_, _, _) => None, // todo maybe None
+                Instr::Cast(r, _) => Some(r),
             }).cloned());
         }
         reg.into_iter().collect()
@@ -238,6 +243,18 @@ impl From<Instr> for Instruction {
                 vals.insert(v.clone());
             }
             Instr::VReturn => {}
+            Instr::Extract(r, obj, _) => {
+                defs.insert(r.clone());
+                vals.insert(obj.clone());
+            }
+            Instr::Insert(obj, _, v) => {
+                vals.insert(obj.clone());
+                vals.insert(v.clone());
+            }
+            Instr::Cast(r, v) => {
+                vals.insert(v.clone());
+                defs.insert(r.clone());
+            }
         }
         let used: HashSet<Reg> = vals.into_iter().filter_map(|v| if let Value::Register(r) = v {
             Some(r)
@@ -343,6 +360,9 @@ pub enum Instr {
     Jump(Label),
     If(If),
     Call(Reg, Label, Vec<Value>),
+    Extract(Reg, Value, usize),
+    Insert(Value, usize, Value),
+    Cast(Reg, Value),
     Return(Value),
     VReturn,
 }
@@ -473,4 +493,30 @@ pub enum Value {
     Int(i32),
     String(u32),
     Bool(bool),
+    Null,
+}
+
+impl Value {
+    pub fn get_type(&self) -> IType {
+        match self {
+            Value::Register(Reg {itype, ..}) => itype.clone(),
+            Value::Int(_) => IType::Int,
+            Value::String(_) => IType::String,
+            Value::Bool(_) => IType::Boolean,
+            Value::Null => IType::Null,
+        }
+    }
+
+    pub fn to_class(&self) -> String {
+        if let Value::Register(reg) = self {
+            if let IType::Class(c) = &reg.itype {
+                return c.clone()
+            } else {
+                unreachable!()
+            }
+        }
+        {
+            unreachable!()
+        }
+    }
 }

@@ -16,7 +16,8 @@ mod lcse_optimizer;
 
 
 pub fn transform(maps: Maps, ast: &mut Program) -> CheckerResult<(ControlFlowGraph, Vec<Opcode>)> {
-    let lcse = true;
+    let lcse = false;
+    let live = true;
 
     let mut transformer = QuadrupleCodeTransformer::new(maps);
 
@@ -29,7 +30,9 @@ pub fn transform(maps: Maps, ast: &mut Program) -> CheckerResult<(ControlFlowGra
         lcse_optimizer.optimize(&mut graph);
     }
 
-    liveliness_analysis(&mut graph);
+    if live {
+        liveliness_analysis(&mut graph);
+    }
     // println!("functions: {:?}", graph.functions);
     // println!("open_blocks: {:?}", graph.current_block);
 

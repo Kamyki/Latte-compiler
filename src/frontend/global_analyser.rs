@@ -141,7 +141,7 @@ fn dfs(graph: &HashMap<String, ClassSignature>, v: &String, discovered: &mut Has
 #[derive(Debug)]
 pub struct ClassSignature {
     pub type_name: Type,
-    fields: HashMap<String, Type>,
+    pub fields: HashMap<String, Type>,
     pub methods: HashMap<String, FunctionSignature>,
     pub super_class: Option<Id>,
 }
@@ -183,6 +183,10 @@ impl ClassSignature {
 
     pub fn find_method(&self, id: &Id) -> Option<&FunctionSignature> {
         self.methods.get(id.item.as_str())
+    }
+
+    pub fn var_num(&self, id: &Id) -> usize {
+        self.fields.iter().enumerate().find(|(_, (v,_))| *v == &id.item).map(|(i, _)| i).unwrap() + 1
     }
 }
 

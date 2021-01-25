@@ -62,8 +62,17 @@ impl Memory {
         Self {
             base: Some(EBP),
             offset: None,
-            displacement
+            displacement,
         }
+    }
+    pub fn from_target(base: &Target, displacement: i32) -> Self {
+        if let Target::Reg(reg) = base {
+            Self {
+                base: Some(reg.clone()),
+                offset: None,
+                displacement,
+            }
+        } else { panic!("Base should be register") }
     }
 }
 
@@ -73,6 +82,8 @@ pub enum Target {
     Imm(i32),
     Memory(Memory),
     Label(String),
+    Pointer(Register),
+    Null,
 }
 
 impl Display for Target {
@@ -93,11 +104,15 @@ impl Display for Target {
                     v.push(format!("+ {}", displacement * 8));
                 } else if *displacement < 0 {
                     v.push(format!("- {}", -displacement * 8));
+                } else if base.is_none() && offset.is_none() {
+                    v.push(format!("{}", displacement * 8));
                 }
                 result = result.and(write!(f, "{}", v.join(" ")));
                 result.and(write!(f, "]"))
             }
-            Target::Label(l) => write!(f, "[rel {}]", l)
+            Target::Label(l) => write!(f, "[rel {}]", l),
+            Target::Pointer(reg) => write!(f, "qword [{}]", reg),
+            Target::Null => write!(f, "qword 0"),
         }
     }
 }
@@ -128,6 +143,7 @@ pub enum Opcode {
     Ret,
     Special(String),
     Neg(Target),
+    Lea(Target, Target),
 }
 
 impl Opcode {
@@ -146,12 +162,12 @@ impl Opcode {
 impl Display for Opcode {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Opcode::Cmp(a,b) => write!(f, "cmp {}, {}", a, b),
+            Opcode::Cmp(a, b) => write!(f, "cmp {}, {}", a, b),
             Opcode::Mov(a, b) => write!(f, "mov {}, {}", a, b),
             Opcode::Add(a, b) => write!(f, "add {}, {} ", a, b),
             Opcode::Mul(a, b) => write!(f, "imul {}, {}", a, b),
             Opcode::Sub(a, b) => write!(f, "sub {}, {}", a, b),
-            Opcode::Div(a) => write!{f, "idiv {}", a},
+            Opcode::Div(a) => write! {f, "idiv {}", a},
             Opcode::Jmp(l) => write!(f, "jmp {}", l),
             Opcode::Je(l) => write!(f, "je {}", l),
             Opcode::Jne(l) => write!(f, "jne {}", l),
@@ -167,6 +183,7 @@ impl Display for Opcode {
             Opcode::Ret => write!(f, "ret"),
             Opcode::Special(s) => write!(f, "{}", s),
             Opcode::Neg(a) => write!(f, "neg {}", a),
+            Opcode::Lea(a, b) => write!(f, "lea {}, {}", a, b),
         }
     }
 }

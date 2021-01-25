@@ -2,7 +2,7 @@ use crate::model::ast::{Program, TopDef};
 use crate::frontend::function_analyser::{FunctionAnalyser};
 use crate::error_handling::{CheckerResult, AccErrors};
 use crate::frontend::simplifier::Simplifier;
-use crate::frontend::global_analyser::{GlobalAnalyser, FunctionSignature};
+use crate::frontend::global_analyser::{GlobalAnalyser, FunctionSignature, ClassSignature};
 use crate::frontend::class_analyser::ClassAnalyser;
 use crate::frontend::string_mapper::StringMapper;
 use std::collections::HashMap;
@@ -13,7 +13,7 @@ pub mod global_analyser;
 mod class_analyser;
 mod string_mapper;
 
-pub type Maps = (HashMap<String, FunctionSignature>, HashMap<String, u32>);
+pub type Maps = (HashMap<String, FunctionSignature>, HashMap<String, u32>, HashMap<String, ClassSignature>);
 
 pub fn check_semantics(ast: &mut Program) -> CheckerResult<Maps> {
     let simplifier = Simplifier::new();
@@ -33,7 +33,7 @@ pub fn check_semantics(ast: &mut Program) -> CheckerResult<Maps> {
         .and_then(|_| check_classes(&class_analyser, &ast))
         .and_then(|_| string_mapper.add_strings(&ast));
 
-    result.and(Ok((global.functions, string_mapper.strings)))
+    result.and(Ok((global.functions, string_mapper.strings, global.classes)))
 }
 
 fn check_functions(analyser: &FunctionAnalyser, ast: &Program) -> CheckerResult<()> {
