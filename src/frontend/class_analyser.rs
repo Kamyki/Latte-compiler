@@ -37,11 +37,11 @@ impl<'a> ClassAnalyser<'a> {
         while let Some(super_class) = &cs.super_class {
             let scs = &self.global.classes[super_class.item.as_str()];
 
-            for (method_name, method) in cs.methods.iter() {
+            for (method_name, (_, method)) in cs.methods.iter() {
                 if scs.methods.contains_key(method_name) {
                     return Err(VirtualMethod.add(method.span, "Virtual method in class are not supported")
                         .add(scs.type_name.span, "Super method is in this class")
-                        .add(scs.methods[method_name].span, "In this place")
+                        .add(scs.methods[method_name].1.span, "In this place")
                         .add_over_span(class.span).done());
                 }
             }

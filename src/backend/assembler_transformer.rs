@@ -286,12 +286,13 @@ impl AssemblerTransformer {
             Value::Int(i) => Target::Imm(*i),
             Value::String(s) => {
                 let s_label = self.alloc_string(s);
-                Target::Label(s_label)
+                Target::Var(s_label)
             }
             Value::Bool(b) => {
                 if *b { Target::Imm(1) } else { Target::Imm(0) }
             }
             Value::Null => Target::Null,
+            Value::Const(label) => Target::Var(label.clone()),
         }
     }
 
@@ -300,7 +301,7 @@ impl AssemblerTransformer {
         let t = self.get_target(v);
         match t {
             Target::Reg(_) => t,
-            Target::Label(_) => {
+            Target::Var(_) => {
                 let f_reg = self.get_free_register();
                 let f_target = Target::Reg(f_reg.clone());
                 self.code.push(Opcode::Special(format!("lea {}, {}", f_target, t)));
@@ -381,6 +382,10 @@ impl AssemblerTransformer {
         }
 
         self.transform_add_static_strings(graph);
+        for (class, (methods, _)) in graph.classes.iter() {
+            self.add_vtable(format!("_vtable_{}", class), methods);
+        }
+
         self.remove_one_line_jumps()
     }
 
@@ -390,11 +395,22 @@ impl AssemblerTransformer {
             Opcode::Special(format!("section .text")),
             Opcode::Special(format!("extern {}, _concatString, _cmpString, _alloc_size", built_ins.join(", "))),
             Opcode::Label(format!("_start")),
-            Opcode::Call(format!("main")),
+            Opcode::Call(Target::Label(format!("main"))),
             Opcode::Mov(Target::Reg(EDI), Target::Reg(EAX)),
             Opcode::Mov(Target::Reg(EAX), Target::Imm(60)),
             Opcode::Special(format!("syscall")),
         ]);
+    }
+
+    fn add_vtable(&mut self, name: String,  methods: &Vec<String>) {
+        let mut vtable = String::new();
+        vtable.push_str(&name);
+        vtable.push_str(" dq ");
+        for m in methods {
+            vtable.push_str(m);
+            vtable.push_str(", ")
+        }
+        self.code.push(Opcode::Special(vtable));
     }
 
     fn add_function_args_and_locals(&mut self, locals: &Vec<Reg>, args: &Vec<Reg>) {
@@ -487,7 +503,7 @@ impl AssemblerTransformer {
                     let a_target = self.get_reg_target(a);
                     self.code.push(Opcode::Push(a_target));
                     self.dump_all(Some(ret));
-                    self.code.push(Opcode::Call("_concatString".to_string()));
+                    self.code.push(Opcode::Call(Target::Label("_concatString".to_string())));
                     self.code.push(Opcode::Add(Target::Reg(ESP), Target::Imm(8 * 2 as i32)));
 
                     self.mark_free_value(ret);
@@ -576,7 +592,7 @@ impl AssemblerTransformer {
                     self.commit_register(&y_target);
 
                     self.dump_all(None);
-                    self.code.push(Opcode::Call("_cmpString".to_string()));
+                    self.code.push(Opcode::Call(Target::Label("_cmpString".to_string())));
                     self.code.push(Opcode::Add(Target::Reg(ESP), Target::Imm(8 * 2 as i32)));
                     self.code.push(Opcode::Cmp(Target::Reg(EAX).clone(), Target::Imm(1)));
                     self.code.push(Opcode::Je(t.clone()));
@@ -608,7 +624,7 @@ impl AssemblerTransformer {
                         self.commit_register(&a_target);
                     }
                     self.dump_all(Some(ret));
-                    self.code.push(Opcode::Call(label.clone()));
+                    self.code.push(Opcode::Call(Target::Label(label.clone())));
                     if args.len() > 0 { // remove args
                         self.code.push(Opcode::Add(Target::Reg(ESP), Target::Imm(8 * args.len() as i32)))
                     }
@@ -617,6 +633,36 @@ impl AssemblerTransformer {
                         self.put_into_target(ret, &Target::Reg(EAX));
                         self.commit_register(&Target::Reg(EAX));
                     }
+                }
+                Instr::CallM(ret, obj, num, args) => {
+                    for arg in args.clone().iter().rev() { // add args
+                        let a_target = self.get_reg_target(arg);
+                        self.code.push(Opcode::Push(a_target.clone()));
+                        self.commit_register(&a_target);
+                    }
+                    let obj_addr = self.get_reg_target(obj);
+                    let f_reg = self.get_free_register();
+                    let f_target = Target::Reg(f_reg.clone());
+                    let lea_memory = Memory::from_target(&obj_addr, 0);
+                    self.code.push(Opcode::Mov(f_target.clone(), Target::Memory(lea_memory))); //vtable
+                    let call_memory = Memory::from_target(&f_target, *num as  i32);
+                    self.code.push(Opcode::Mov(f_target.clone(), Target::Memory(call_memory)));
+
+                    self.dump_all(Some(ret));
+                    self.code.push(Opcode::Call(f_target.clone()));
+                    if args.len() > 0 { // remove args
+                        self.code.push(Opcode::Add(Target::Reg(ESP), Target::Imm(8 * args.len() as i32)))
+                    }
+                    if ret.itype != IType::Void {
+                        self.mark_free_value(ret);
+                        self.put_into_target(ret, &Target::Reg(EAX));
+                        self.commit_register(&Target::Reg(EAX));
+                    }
+
+                    self.mark_free_value(ret);
+                    self.put_into_target(ret, &f_target);
+                    self.commit_register(&obj_addr);
+                    self.commit_register(&f_target);
                 }
                 Instr::Return(v) => {
                     let v_target = self.get_reg_target(v);

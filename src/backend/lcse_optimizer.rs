@@ -137,7 +137,7 @@ impl LCSEOptimizer {
         new_block.jumps = block.jumps;
 
         for Instruction(i, (ins, outs), (defs, used)) in block.code.drain(..) {
-            if let Instr::Call(_, _, _) = i {
+            if let Instr::Call(_, _, _)|Instr::Insert(_, _,_)|Instr::CallM(_, _, _, _) = i {
                 new_block.code.push(Instruction(i, (ins, outs), (defs, used)))
             } else if defs.is_empty() || outs.intersection(&defs).next() != None {
                 new_block.code.push(Instruction(i, (ins, outs), (defs, used)))

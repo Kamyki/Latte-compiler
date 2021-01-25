@@ -8,10 +8,11 @@ use crate::model::quadruple_code::{BinOp, ControlFlowGraph, If, Instr, Label, Re
 use crate::model::quadruple_code::Instr::Jump;
 use crate::model::quadruple_code::RelOp::EQ;
 
+
 pub enum QuadrupleCodeTransformer<'a> {
     Root {
         label_num: u32,
-        env: HashMap<String, Reg>,
+        env: HashMap<String, (Reg, Option<(IType, usize)>)>,
         strings: HashMap<String, u32>,
         functions: HashMap<Label, FunctionSignature>,
         classes: HashMap<Label, ClassSignature>,
@@ -20,7 +21,7 @@ pub enum QuadrupleCodeTransformer<'a> {
     Frame {
         parent: &'a QuadrupleCodeTransformer<'a>,
         root: &'a QuadrupleCodeTransformer<'a>,
-        env: HashMap<String, Reg>,
+        env: HashMap<String, (Reg, Option<(IType, usize)>)>,
         num: u32,
         label_num: u32,
         current_name: String,
@@ -51,6 +52,10 @@ impl<'a> QuadrupleCodeTransformer<'a> {
         }
     }
 
+    fn obj_self() -> Id {
+        Id { item: format!("self"), span: (0, 0) }
+    }
+
     fn find_function(&self, id: &str) -> &FunctionSignature {
         match self {
             QuadrupleCodeTransformer::Root { functions, .. } => functions.get(id).unwrap(),
@@ -72,14 +77,14 @@ impl<'a> QuadrupleCodeTransformer<'a> {
         }
     }
 
-    pub fn insert_var(&mut self, id: Id, reg: Reg) {
+    pub fn insert_var(&mut self, id: Id, reg: Reg, field_num: Option<(IType, usize)>) {
         match self {
-            QuadrupleCodeTransformer::Root { env, .. } => env.insert(id.item, reg),
-            QuadrupleCodeTransformer::Frame { env, .. } => env.insert(id.item, reg),
+            QuadrupleCodeTransformer::Root { env, .. } => env.insert(id.item, (reg, field_num)),
+            QuadrupleCodeTransformer::Frame { env, .. } => env.insert(id.item, (reg, field_num)),
         };
     }
 
-    fn find_var(&self, id: &Id) -> Reg {
+    fn find_var(&self, id: &Id) -> (Reg, Option<(IType, usize)>) {
         match self {
             QuadrupleCodeTransformer::Root { env, .. } => env.get(id.item.as_str()).unwrap().clone(),
             QuadrupleCodeTransformer::Frame { parent, env, .. } => {
@@ -155,21 +160,29 @@ impl<'a> QuadrupleCodeTransformer<'a> {
     fn transform_class(&mut self, graph: &mut ControlFlowGraph, c: &Class) {
         self.inc_num();
         let mut class_transformer = QuadrupleCodeTransformer::new_frame(self, Some(c.id.item.clone()));
+
+        let mut supers = vec![self.find_class(&c.id.item)];
+        while let Some(c2) = &c.super_class {
+            supers.push(self.find_class(&c2.item))
+        }
+
         let mut fields = vec![];
 
-        // todo insert "self" to fields and var map
-        for field in c.fields.iter() {
-            let var = class_transformer.new_label();
-            let reg = Reg::new(field.0.item.clone(), var);
-            class_transformer.insert_var(field.1.clone(), reg.clone());
-            fields.push(reg);
+        let self_obj = Reg::new(IType::Class(c.id.item.clone()), class_transformer.new_label());
+
+        for (field_num, field) in supers.iter().rev().flat_map(|v| &c.fields).enumerate() {
+            class_transformer.insert_var(field.1.clone(), self_obj.clone(), Some((field.0.item.clone(), field_num + 1)));
+            fields.push(     Reg::new(field.0.item.clone(), class_transformer.new_label()));
         }
-        for method in c.methods.iter() {
-            self.transform_method(graph, method, &c.id.item);
+        let mut ctable = vec![];
+
+        for method in supers.iter().rev().flat_map(|v| &c.methods) {
+            let name = class_transformer.transform_method(graph, method, &self_obj, &c.id.item);
+            ctable.push(name);
         }
-        let constructor_label = self.add_constructor(graph, &c.id.item, &fields);
+        let constructor_label = class_transformer.add_constructor(graph, &c.id.item, &fields);
         graph.functions.insert(format!("_new_{}", &c.id.item), (constructor_label.clone(), vec![]));
-        graph.classes.insert(c.id.item.clone(), (format!("_new_{}", &c.id.item), fields));
+        graph.classes.insert(c.id.item.clone(), (ctable, fields));
     }
 
     fn add_constructor(&mut self, graph: &mut ControlFlowGraph, class: &String, fields: &Vec<Reg>) -> Label {
@@ -180,6 +193,8 @@ impl<'a> QuadrupleCodeTransformer<'a> {
         let reg = Reg::new(IType::Class(class.clone()), function_transformer.new_label());
         graph.push(Instr::Call(reg.clone(), format!("_alloc_size"), vec![Value::Int(fields.len() as i32)]));
         let object = Value::Register(reg);
+
+        graph.push(Instr::Insert(object.clone(), 0, Value::Const(format!("_vtable_{}", class))));
         for (i, reg) in fields.iter().enumerate() {
             let init = match &reg.itype {
                 IType::Int => Value::Int(0),
@@ -195,19 +210,23 @@ impl<'a> QuadrupleCodeTransformer<'a> {
         block_label
     }
 
-    fn transform_method(&mut self, graph: &mut ControlFlowGraph, f: &Function, class_name: &str) {
-        let method_mangled_name = format!("{}_{}", class_name, f.id.item);
+    fn transform_method(&mut self, graph: &mut ControlFlowGraph, f: &Function, self_obj: &Reg, class_name: &str) -> String {
+        let method_mangled_name = format!("_{}_{}", class_name, f.id.item);
         self.inc_num();
         let mut method_transformer = QuadrupleCodeTransformer::new_frame(self, Some(method_mangled_name.clone()));
         let mut arg_reg = vec![];
+        arg_reg.push(self_obj.clone());
+        method_transformer.insert_var(Self::obj_self(), self_obj.clone(), None);
+
         for arg in &f.args {
             let var = method_transformer.new_label();
             let reg = Reg::new(arg.0.item.clone(), var);
-            method_transformer.insert_var(arg.1.clone(), reg.clone());
+            method_transformer.insert_var(arg.1.clone(), reg.clone(), None);
             arg_reg.push(reg);
         }
         let label = method_transformer.transform_block(graph, &f.block, None);
-        graph.functions.insert(method_mangled_name, (label, arg_reg));
+        graph.functions.insert(method_mangled_name.clone(), (label, arg_reg));
+        method_mangled_name
     }
 
     fn transform_function(&mut self, graph: &mut ControlFlowGraph, f: &Function) {
@@ -217,7 +236,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
         for arg in &f.args {
             let var = function_transformer.new_label();
             let reg = Reg::new(arg.0.item.clone(), var);
-            function_transformer.insert_var(arg.1.clone(), reg.clone());
+            function_transformer.insert_var(arg.1.clone(), reg.clone(), None);
             arg_reg.push(reg);
         }
 
@@ -249,7 +268,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                             Item::NoInit(x) => {
                                 let var = block_transformer.new_label();
                                 let reg = Reg::new(t.item.clone(), var);
-                                block_transformer.insert_var(x.clone(), reg.clone());
+                                block_transformer.insert_var(x.clone(), reg.clone(), None);
                                 match t.item {
                                     IType::Int => graph.push(Instr::Copy(reg, Value::Int(0))),
                                     IType::String => graph.push(Instr::Copy(reg, Value::String(0))),
@@ -262,11 +281,11 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                             Item::Init { i, e } => {
                                 let v = block_transformer.transform_expr(graph, e, None);
                                 match v {
-                                    Value::Register(reg) => block_transformer.insert_var(i.clone(), reg.clone()),
+                                    Value::Register(reg) => block_transformer.insert_var(i.clone(), reg.clone(), None),
                                     _ => {
                                         let var = block_transformer.new_label();
                                         let reg = Reg::new(t.item.clone(), var);
-                                        block_transformer.insert_var(i.clone(), reg.clone());
+                                        block_transformer.insert_var(i.clone(), reg.clone(), None);
                                         graph.push(Instr::Copy(reg, v))
                                     }
                                 }
@@ -277,8 +296,13 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                 IStmt::Asg { i, e } => match i {
                     Target::Id(id) => {
                         let v = block_transformer.transform_expr(graph, e, None);
-                        let reg = block_transformer.find_var(id);
-                        graph.push(Instr::Copy(reg, v))
+                        match block_transformer.find_var(id) {
+                            (reg, None) => graph.push(Instr::Copy(reg, v)),
+                            (obj, Some((_, field_num))) => {
+                                let object = Value::Register(obj);
+                                graph.push(Instr::Insert(object, field_num, v));
+                            }
+                        }
                     }
                     Target::Field(Field { e: obj, id }) => {
                         let v = block_transformer.transform_expr(graph, e, None);
@@ -290,8 +314,16 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                 }
                 IStmt::Incr(t) => match t {
                     Target::Id(id) => {
-                        let reg = block_transformer.find_var(id);
-                        graph.push(Instr::Asg1(reg.clone(), UnOp::Incr, Value::Register(reg)));
+                        match block_transformer.find_var(id) {
+                            (reg, None) => graph.push(Instr::Asg1(reg.clone(), UnOp::Incr, Value::Register(reg))),
+                            (obj, Some((itype, field_num))) => {
+                                let object = Value::Register(obj);
+                                let reg = Reg::new(itype, block_transformer.new_label());
+                                graph.push(Instr::Extract(reg.clone(), object.clone(), field_num));
+                                graph.push(Instr::Asg1(reg.clone(), UnOp::Incr, Value::Register(reg.clone())));
+                                graph.push(Instr::Insert(object, field_num, Value::Register(reg.clone())));
+                            }
+                        }
                     }
                     Target::Field(Field { e: obj, id }) => {
                         let object = block_transformer.transform_expr(graph, obj, None);
@@ -307,8 +339,16 @@ impl<'a> QuadrupleCodeTransformer<'a> {
 
                 IStmt::Decr(t) => match t {
                     Target::Id(id) => {
-                        let reg = block_transformer.find_var(id);
-                        graph.push(Instr::Asg1(reg.clone(), UnOp::Decr, Value::Register(reg)));
+                        match block_transformer.find_var(id) {
+                            (reg, None) => graph.push(Instr::Asg1(reg.clone(), UnOp::Decr, Value::Register(reg))),
+                            (obj, Some((itype, field_num))) => {
+                                let object = Value::Register(obj);
+                                let reg = Reg::new(itype, block_transformer.new_label());
+                                graph.push(Instr::Extract(reg.clone(), object.clone(), field_num));
+                                graph.push(Instr::Asg1(reg.clone(), UnOp::Decr, Value::Register(reg.clone())));
+                                graph.push(Instr::Insert(object, field_num, Value::Register(reg.clone())));
+                            }
+                        }
                     }
                     Target::Field(Field { e: obj, id }) => {
                         let object = block_transformer.transform_expr(graph, obj, None);
@@ -432,12 +472,23 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                     IBinOp::Or => self.transform_or(graph, l, r, cond),
                 }
             }
-            IExpr::Var(v) => match cond {
-                None => Value::Register(self.find_var(&v)),
-                Some((t, f)) => {
-                    let val = self.find_var(&v);
-                    graph.push(Instr::If(If(Value::Register(val.clone()), EQ, Value::Bool(true), t.clone(), f.clone())));
-                    Value::Register(val)
+            IExpr::Var(v) => {
+                let reg = match self.find_var(&v) {
+                    (reg, None) => reg,
+
+                    (reg, Some((itype, field_num))) => {
+                        let obj = Value::Register(reg);
+                        let new_reg = Reg::new(itype, self.new_label());
+                        graph.push(Instr::Extract(new_reg.clone(), obj, field_num));
+                        new_reg
+                    }
+                };
+                match cond {
+                    None => Value::Register(reg),
+                    Some((t, f)) => {
+                        graph.push(Instr::If(If(Value::Register(reg.clone()), EQ, Value::Bool(true), t.clone(), f.clone())));
+                        Value::Register(reg)
+                    }
                 }
             }
             IExpr::Int(i) => Value::Int(i.clone()),
@@ -448,21 +499,37 @@ impl<'a> QuadrupleCodeTransformer<'a> {
                     Value::Bool(b.clone())
                 }
             }
-            IExpr::FunCall { name, args } => {
+            IExpr::FunCall { name: Target::Field(Field { e, id }), args } => {
+                let mut call_args = vec![];
+                let obj = self.transform_expr(graph, e, None);
+                call_args.push(obj.clone());
+                for arg in args {
+                    let v = self.transform_expr(graph, arg, None);
+                    call_args.push(v);
+                }
+                let class_name = obj.to_class();
+                let class = self.find_class(&class_name);
+                let method_num = class.method_num(id);
+                let method = class.find_method(id).unwrap();
+                let reg = Reg::new(method.ret_type.item.clone(), self.new_label());
+                graph.push(Instr::CallM(reg.clone(), obj, method_num, call_args));
+                match cond {
+                    None => {}
+                    Some((t, f)) => graph.push(Instr::If(If(Value::Register(reg.clone()), EQ, Value::Bool(true), t.clone(), f.clone())))
+                }
+                Value::Register(reg)
+            }
+
+            IExpr::FunCall { name: Target::Id(id), args } => {
                 let mut call_args = vec![];
                 for arg in args {
                     let v = self.transform_expr(graph, arg, None);
                     call_args.push(v);
                 }
-                let (id, reg) = match name {
-                    Target::Id(id) => {
-                        let sig = self.find_function(id.item.as_str());
-                        let reg = Reg::new(sig.ret_type.item.clone(), self.new_label());
-                        (id, reg)
-                    }
-                    Target::Field(_) => todo!()
-                };
-                graph.push(Instr::Call(reg.clone(), id.item.clone(), call_args));
+                let sig = self.find_function(id.item.as_str());
+                let reg = Reg::new(sig.ret_type.item.clone(), self.new_label());
+                let fun = id.item.clone();
+                graph.push(Instr::Call(reg.clone(), fun, call_args));
                 match cond {
                     None => {}
                     Some((t, f)) => graph.push(Instr::If(If(Value::Register(reg.clone()), EQ, Value::Bool(true), t.clone(), f.clone())))
@@ -709,7 +776,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
             Value::Int(_) => Reg::new(IType::Int, self.new_label()),
             Value::String(_) => Reg::new(IType::String, self.new_label()),
             Value::Bool(_) => Reg::new(IType::Boolean, self.new_label()),
-            Value::Null => unreachable!(),
+            _ => unreachable!(),
         };
         if reg.itype == IType::String && *o == IBinOp::Add {
             graph.push(Instr::Asg2(reg.clone(), v1, BinOp::Concat, v2));

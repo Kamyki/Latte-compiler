@@ -141,8 +141,8 @@ fn dfs(graph: &HashMap<String, ClassSignature>, v: &String, discovered: &mut Has
 #[derive(Debug)]
 pub struct ClassSignature {
     pub type_name: Type,
-    pub fields: HashMap<String, Type>,
-    pub methods: HashMap<String, FunctionSignature>,
+    pub fields: HashMap<String, (usize, Type)>,
+    pub methods: HashMap<String, (usize, FunctionSignature)>,
     pub super_class: Option<Id>,
 }
 
@@ -155,18 +155,18 @@ impl From<&Class> for ClassSignature {
             type_name: Type { item: IType::Class(class.id.item.clone()), span: class.id.span },
         };
         let mut errs = vec![];
-        for field in &class.fields {
+        for (idx, field) in class.fields.iter().enumerate() {
             let span = field.1.span;
-            let e = match cs.fields.insert(field.1.item.clone(), field.0.clone()) {
+            let e = match cs.fields.insert(field.1.item.clone(), (idx +1, field.0.clone())) {
                 None => Ok(()),
                 Some(_) => Err(DoubleDeclaration.add_done(span, "There is another field with that name")),
             };
             errs.push(e)
         }
-        for method in &class.methods {
+        for (idx, method) in class.methods.iter().enumerate() {
             let span = method.id.span;
             let fs = FunctionSignature::from(method);
-            let e = match cs.methods.insert(method.id.item.clone(), fs) {
+            let e = match cs.methods.insert(method.id.item.clone(), (idx, fs)) {
                 None => Ok(()),
                 Some(_) => Err(DoubleDeclaration.add_done(span, "There is another method with that name")),
             };
@@ -178,15 +178,19 @@ impl From<&Class> for ClassSignature {
 
 impl ClassSignature {
     pub fn find_var(&self, id: &Id) -> Option<&Type> {
-        self.fields.get(id.item.as_str())
+        self.fields.get(id.item.as_str()).map(|v| &v.1)
     }
 
     pub fn find_method(&self, id: &Id) -> Option<&FunctionSignature> {
-        self.methods.get(id.item.as_str())
+        self.methods.get(id.item.as_str()).map(|v| &v.1)
+    }
+
+    pub fn method_num(&self, id: &Id) -> usize {
+        *self.methods.get(id.item.as_str()).map(|v| &v.0).unwrap()
     }
 
     pub fn var_num(&self, id: &Id) -> usize {
-        self.fields.iter().enumerate().find(|(_, (v,_))| *v == &id.item).map(|(i, _)| i).unwrap() + 1
+        *self.fields.get(id.item.as_str()).map(|v| &v.0).unwrap()
     }
 }
 

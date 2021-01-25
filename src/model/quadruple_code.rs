@@ -9,7 +9,7 @@ pub struct ControlFlowGraph {
     pub blocks: HashMap<Label, SimpleBlock>,
     pub liveness: HashMap<Label, (HashSet<Label>, HashSet<Label>)>,
     pub functions: HashMap<String, (Label, Vec<Reg>)>,
-    pub classes: HashMap<String, (Label, Vec<Reg>)>,
+    pub classes: HashMap<String, (Vec<String>, Vec<Reg>)>,
     pub builtin: HashMap<String, (Label, u32)>,
     pub strings: HashMap<u32, String>,
 
@@ -79,6 +79,7 @@ impl ControlFlowGraph {
                 Instr::Extract(r, _, _) => Some(r),
                 Instr::Insert(_, _, _) => None, // todo maybe None
                 Instr::Cast(r, _) => Some(r),
+                Instr::CallM(r, _, _, _) => Some(r),
             }).cloned());
         }
         reg.into_iter().collect()
@@ -255,6 +256,10 @@ impl From<Instr> for Instruction {
                 vals.insert(v.clone());
                 defs.insert(r.clone());
             }
+            Instr::CallM(r, _, _, vs) => {
+                defs.insert(r.clone());
+                vals.extend(vs.iter().cloned());
+            }
         }
         let used: HashSet<Reg> = vals.into_iter().filter_map(|v| if let Value::Register(r) = v {
             Some(r)
@@ -360,6 +365,7 @@ pub enum Instr {
     Jump(Label),
     If(If),
     Call(Reg, Label, Vec<Value>),
+    CallM(Reg, Value, usize, Vec<Value>),
     Extract(Reg, Value, usize),
     Insert(Value, usize, Value),
     Cast(Reg, Value),
@@ -494,6 +500,7 @@ pub enum Value {
     String(u32),
     Bool(bool),
     Null,
+    Const(Label),
 }
 
 impl Value {
@@ -504,6 +511,7 @@ impl Value {
             Value::String(_) => IType::String,
             Value::Bool(_) => IType::Boolean,
             Value::Null => IType::Null,
+            Value::Const(_) => unreachable!()
         }
     }
 

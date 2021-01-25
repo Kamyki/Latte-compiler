@@ -142,7 +142,7 @@ impl<'a> FunctionAnalyser<'a> {
             IStmt::Decl { t, items } => {
                 items.iter().map(|it| match it {
                     Item::NoInit(i) => self.insert_var(i.clone(), t.clone()),
-                    Item::Init { i, e } => self.check_expr(e).and_then(|(e_type, _)| self.insert_var(i.clone(), t.clone()).and(Self::match_type(t, &e_type)))
+                    Item::Init { i, e } => self.check_expr(e).and_then(|(e_type, _)| self.insert_var(i.clone(), t.clone()).and(self.match_type(t, &e_type)))
                 }).acc().and_then(|_: ()| Ok(false))
             }
             IStmt::Asg { i, e } => self.check_target(i)
@@ -170,9 +170,9 @@ impl<'a> FunctionAnalyser<'a> {
                 Err(ArithmeticError.add_done(stmt.span, "++ and -- allowed with ints only"))
             }),
             IStmt::Ret(e) => self.check_expr(e)
-                .and_then(|(t, _)| Self::match_type(self.ret_type(), &t))
+                .and_then(|(t, _)| self.match_type(self.ret_type(), &t))
                 .and(Ok(true)),
-            IStmt::VRet => Self::match_type(self.ret_type(), &Type { item: IType::Void, span: stmt.span })
+            IStmt::VRet => self.match_type(self.ret_type(), &Type { item: IType::Void, span: stmt.span })
                 .and(Ok(true)),
             IStmt::Cond { c, if_true } => self.check_cond(c).and_then(|(cond, err)| {
                 self.check_block(if_true).and_then(|t1| match cond {
@@ -257,11 +257,22 @@ impl<'a> FunctionAnalyser<'a> {
         }
     }
 
-    fn match_type(t1: &Type, t2: &Type) -> CheckerResult<()> {
-        if t1.item == t2.item {
-            Ok(())
-        } else {
-            Err(MismatchedTypes.add(t1.span, "Type mismatch here")
+    fn match_type(&self, t1: &Type, t2: &Type) -> CheckerResult<()> {
+        match (&t1.item, &t2.item) {
+            (v, r) if v == r => Ok(()),
+            (IType::Class(c), IType::Class(v)) =>  {
+                let mut b = self.find_class(v).unwrap();
+                while let Some(id) = &b.super_class {
+                    if c == &id.item {
+                        return Ok(())
+                    }
+                    b = self.find_class(&id.item).unwrap();
+                }
+                Err(MismatchedTypes.add(t1.span, "Type mismatch here")
+                    .add(t2.span, "and here")
+                    .done())
+            }
+            _ => Err(MismatchedTypes.add(t1.span, "Type mismatch here")
                 .add(t2.span, "and here")
                 .done())
         }

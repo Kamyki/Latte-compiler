@@ -82,6 +82,7 @@ pub enum Target {
     Imm(i32),
     Memory(Memory),
     Label(String),
+    Var(String),
     Pointer(Register),
     Null,
 }
@@ -110,9 +111,10 @@ impl Display for Target {
                 result = result.and(write!(f, "{}", v.join(" ")));
                 result.and(write!(f, "]"))
             }
-            Target::Label(l) => write!(f, "[rel {}]", l),
+            Target::Label(l) => write!(f, "{}", l),
             Target::Pointer(reg) => write!(f, "qword [{}]", reg),
             Target::Null => write!(f, "qword 0"),
+            Target::Var(l) => write!(f, "[rel {}]", l),
         }
     }
 }
@@ -138,7 +140,7 @@ pub enum Opcode {
 
     Push(Target),
     Pop(Register),
-    Call(Label),
+    Call(Target),
     Xchng(Target, Target),
     Ret,
     Special(String),
