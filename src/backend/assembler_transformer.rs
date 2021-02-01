@@ -410,6 +410,7 @@ impl AssemblerTransformer {
             vtable.push_str(m);
             vtable.push_str(", ")
         }
+        vtable.push_str("0");
         self.code.push(Opcode::Special(vtable));
     }
 
@@ -444,7 +445,7 @@ impl AssemblerTransformer {
         self.code.push(Opcode::Special(format!("section .data")));
         for (id, label) in self.strings.iter() {
             if let Some(s) = graph.strings.get(id) {
-                self.code.push(Opcode::Special(format!("{} db '{}',0", label, s)));
+                self.code.push(Opcode::Special(format!("{} db `{}`,0", label, s)));
             } else {
                 unreachable!("Unknown string");
             }
@@ -635,18 +636,20 @@ impl AssemblerTransformer {
                     }
                 }
                 Instr::CallM(ret, obj, num, args) => {
-                    for arg in args.clone().iter().rev() { // add args
-                        let a_target = self.get_reg_target(arg);
-                        self.code.push(Opcode::Push(a_target.clone()));
-                        self.commit_register(&a_target);
-                    }
                     let obj_addr = self.get_reg_target(obj);
                     let f_reg = self.get_free_register();
+                    self.all_registers.insert(f_reg.clone(), Reserved);
                     let f_target = Target::Reg(f_reg.clone());
                     let lea_memory = Memory::from_target(&obj_addr, 0);
                     self.code.push(Opcode::Mov(f_target.clone(), Target::Memory(lea_memory))); //vtable
                     let call_memory = Memory::from_target(&f_target, *num as  i32);
                     self.code.push(Opcode::Mov(f_target.clone(), Target::Memory(call_memory)));
+
+                    for arg in args.clone().iter().rev() { // add args
+                        let a_target = self.get_reg_target(arg);
+                        self.code.push(Opcode::Push(a_target.clone()));
+                        self.commit_register(&a_target);
+                    }
 
                     self.dump_all(Some(ret));
                     self.code.push(Opcode::Call(f_target.clone()));
@@ -658,9 +661,6 @@ impl AssemblerTransformer {
                         self.put_into_target(ret, &Target::Reg(EAX));
                         self.commit_register(&Target::Reg(EAX));
                     }
-
-                    self.mark_free_value(ret);
-                    self.put_into_target(ret, &f_target);
                     self.commit_register(&obj_addr);
                     self.commit_register(&f_target);
                 }

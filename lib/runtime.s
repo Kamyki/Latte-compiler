@@ -22,6 +22,7 @@ and rsp, -16
 
 mov rdi, [rbp + 16]
 imul rdi, 8
+xor rax, rax
 call malloc
 test rax, rax
 je .not_malloc
@@ -169,6 +170,7 @@ mov eax, r14d
 cdqe
 
 mov rdi, rax
+xor rax, rax
 call malloc
 test rax, rax
 je .not_malloc

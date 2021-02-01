@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use crate::model::ast::{Program, Id, Type, TopDef, Span, IType, Function, Class};
-use crate::error_handling::FrontendError::{DoubleDeclaration, FunctionCall, MismatchedTypes, WrongExtend, CircularClassHierarchy, MissingMain};
+use crate::error_handling::FrontendError::{DoubleDeclaration, WrongExtend, CircularClassHierarchy, MissingMain, OverloadedMethod};
 use crate::error_handling::{CheckerResult, AccErrors};
 
 pub struct GlobalAnalyser {
@@ -29,15 +29,31 @@ impl GlobalAnalyser {
             Some(_) => Err(DoubleDeclaration.add_done(span, "There is another class with that name")),
         }
     }
+
+    pub fn find_class_method(&self, class: &str, method: &Id) -> Option<&FunctionSignature> {
+        self.classes.get(class).and_then(|c| {
+            if let Some(m) = c.find_method(method) {
+                Some(m)
+            } else {
+                c.super_id.as_ref().and_then(|s| self.find_class_method(&s.item, method))
+            }
+        })
+    }
 }
 
 impl GlobalAnalyser {
     pub fn check(&mut self, ast: &Program) -> CheckerResult<()> {
         self.functions.extend(builtin_function());
-        self.add_function_names(ast)
+        let mut res = self.add_function_names(ast)
             .and(self.check_main())
             .and(self.add_class_names(ast))
-            .and(self.check_super())
+            .and(self.check_super());
+
+        let keys: Vec<String> = self.classes.keys().cloned().collect();
+        for m in keys {
+            res = res.and(self.check_super_methods_and_fields(&m));
+        }
+        res
     }
 
     fn add_function_names(&mut self, ast: &Program) -> CheckerResult<()> {
@@ -65,7 +81,7 @@ impl GlobalAnalyser {
         let mut time = 0;
 
         for class in self.classes.values() {
-            if let Some(super_class) = &class.super_class {
+            if let Some(super_class) = &class.super_id {
                 if !self.classes.contains_key(&super_class.item) {
                     errors.push(Err(WrongExtend.add_done(super_class.span, "Extending not existing class")))
                 }
@@ -82,14 +98,14 @@ impl GlobalAnalyser {
         }
 
         for (name, class) in &self.classes {
-            if let Some(super_class) = &class.super_class {
+            if let Some(super_class) = &class.super_id {
                 if departure[&super_class.item] >= departure[name] {
                     let mut err = CircularClassHierarchy.add(super_class.span, "Detected circular class hierarchy from here");
                     let mut super_super_class = &super_class.item;
                     let mut nr = 1;
                     while name != super_super_class {
                         err = err.add(self.classes[super_super_class].type_name.span, format!("Then this {}", nr));
-                        super_super_class = &self.classes[super_super_class].super_class.as_ref().unwrap().item;
+                        super_super_class = &self.classes[super_super_class].super_id.as_ref().unwrap().item;
                         nr += 1;
                     }
                     err = err.add(class.type_name.span, "And back to beginning");
@@ -98,6 +114,56 @@ impl GlobalAnalyser {
             }
         }
         errors.acc()
+    }
+
+    fn check_super_methods_and_fields(&mut self, class_id: &str) -> CheckerResult<()> {
+        let mut res = Ok(());
+        if self.classes.get(class_id).unwrap().has_super_fields {
+            return res
+        }
+        self.classes.entry(class_id.to_string()).and_modify(|v| v.has_super_fields = true);
+        if let Some(super_id) =  self.classes.get(class_id).unwrap().super_id.clone() {
+            let mut super_methods = vec![];
+            let mut to_remove = vec![];
+            let mut super_fields = vec![];
+            res = res.and(self.check_super_methods_and_fields(&super_id.item));
+            let super_class = self.classes.get(&super_id.item).unwrap();
+            let class = self.classes.get(class_id).unwrap();
+            for (m, method, sc) in super_class.methods.iter() {
+                if let Some((_, class_s, c)) = class.methods.iter().find(|(s, _, _)| s == m) {
+                    if !class_s.match_signature(method) {
+                        res = res.and(
+                            Err(OverloadedMethod.add(class_s.span, "Signature not match super method")
+                                .add(method.span, "Super method")
+                                .done()));
+                    } else {
+                        super_methods.push((m.clone(), class_s.clone(), c.clone()));
+                        to_remove.push(m.clone());
+                    }
+                } else {
+                    super_methods.push((m.clone(), method.clone(), sc.clone()));
+                }
+            }
+            for (f, field) in super_class.fields.iter() {
+                if let Some((_, field_t)) = class.fields.iter().find(|(s,_)| s == f) {
+                    res = res.and(Err(DoubleDeclaration.add(field_t.span, "Double declaration of field in class")
+                        .add(field.span, "super field is here")
+                        .done()))
+                } else {
+                    super_fields.push((f.clone(), field.clone()));
+                }
+            }
+            let methods: Vec<(String, FunctionSignature, String)> = self.classes.get(class_id).unwrap().methods.iter().cloned().collect();
+            self.classes.entry(class_id.to_string()).and_modify(|v| v.methods = methods.into_iter().filter(|c| !to_remove.contains(&c.0)).collect());
+
+            for m in super_methods.into_iter().rev() {
+                self.classes.get_mut(class_id).unwrap().methods.push_front(m);
+            }
+            for f in super_fields.into_iter().rev() {
+                self.classes.get_mut(class_id).unwrap().fields.push_front(f);
+            }
+        }
+        res
     }
 
     fn check_main(&self) -> CheckerResult<()> {
@@ -113,7 +179,7 @@ impl GlobalAnalyser {
     }
 
     pub fn extends(&self, cs: &ClassSignature, t: &IType) -> bool {
-        if let Some(s) = &cs.super_class {
+        if let Some(s) = &cs.super_id {
             if let Some(super_class) = self.classes.get(&s.item) {
                 return if super_class.type_name.item == *t {
                     true
@@ -129,7 +195,7 @@ impl GlobalAnalyser {
 fn dfs(graph: &HashMap<String, ClassSignature>, v: &String, discovered: &mut HashSet<String>, departure: &mut HashMap<String, u32>, time: &mut u32) {
     discovered.insert(v.clone());
 
-    if let Some(u) = &graph[v].super_class {
+    if let Some(u) = &graph[v].super_id {
         if !discovered.contains(&u.item) {
             dfs(graph, &u.item, discovered, departure, time);
         }
@@ -141,33 +207,42 @@ fn dfs(graph: &HashMap<String, ClassSignature>, v: &String, discovered: &mut Has
 #[derive(Debug)]
 pub struct ClassSignature {
     pub type_name: Type,
-    pub fields: HashMap<String, (usize, Type)>,
-    pub methods: HashMap<String, (usize, FunctionSignature)>,
-    pub super_class: Option<Id>,
+    pub fields: VecDeque<(Id, Type)>,
+    pub methods: VecDeque<(String, FunctionSignature, String)>,
+    pub super_id: Option<Id>,
+    pub has_super_fields: bool,
 }
 
 impl From<&Class> for ClassSignature {
     fn from(class: &Class) -> Self {
         let mut cs = Self {
-            fields: HashMap::new(),
-            methods: HashMap::new(),
-            super_class: class.super_class.clone(),
+            fields: VecDeque::new(),
+            methods: VecDeque::new(),
+            super_id: class.super_class.clone(),
             type_name: Type { item: IType::Class(class.id.item.clone()), span: class.id.span },
+            has_super_fields: false
         };
         let mut errs = vec![];
-        for (idx, field) in class.fields.iter().enumerate() {
+        for field in class.fields.iter() {
             let span = field.1.span;
-            let e = match cs.fields.insert(field.1.item.clone(), (idx +1, field.0.clone())) {
-                None => Ok(()),
+            let e = match cs.fields.iter().filter(|(f, _)| f.item == field.1.item).next() {
+                None => {
+                    cs.fields.push_back((field.1.clone(), field.0.clone()));
+                    Ok(())
+                },
                 Some(_) => Err(DoubleDeclaration.add_done(span, "There is another field with that name")),
             };
             errs.push(e)
         }
-        for (idx, method) in class.methods.iter().enumerate() {
+        for method in class.methods.iter() {
             let span = method.id.span;
             let fs = FunctionSignature::from(method);
-            let e = match cs.methods.insert(method.id.item.clone(), (idx, fs)) {
-                None => Ok(()),
+
+            let e = match cs.methods.iter().filter(|(c, _, _)| *c == method.id.item).next() {
+                None => {
+                    cs.methods.push_back((method.id.item.clone(), fs, class.id.item.clone()));
+                    Ok(())
+                }
                 Some(_) => Err(DoubleDeclaration.add_done(span, "There is another method with that name")),
             };
             errs.push(e)
@@ -178,23 +253,23 @@ impl From<&Class> for ClassSignature {
 
 impl ClassSignature {
     pub fn find_var(&self, id: &Id) -> Option<&Type> {
-        self.fields.get(id.item.as_str()).map(|v| &v.1)
+        self.fields.iter().find(|(s, _)| s.item == id.item.as_str()).map(|v| &v.1)
     }
 
     pub fn find_method(&self, id: &Id) -> Option<&FunctionSignature> {
-        self.methods.get(id.item.as_str()).map(|v| &v.1)
+        self.methods.iter().find(|(s, _, _)| s == id.item.as_str()).map(|v| &v.1)
     }
 
     pub fn method_num(&self, id: &Id) -> usize {
-        *self.methods.get(id.item.as_str()).map(|v| &v.0).unwrap()
+        self.methods.iter().enumerate().find(|(_, (s, _, _))| s == id.item.as_str()).map(|v| v.0).unwrap()
     }
 
     pub fn var_num(&self, id: &Id) -> usize {
-        *self.fields.get(id.item.as_str()).map(|v| &v.0).unwrap()
+        self.fields.iter().enumerate().find(|(_,(s, _))| s.item == id.item.as_str()).map(|v|v.0 + 1).unwrap()
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FunctionSignature {
     pub span: Span,
     pub ret_type: Type,
@@ -212,21 +287,10 @@ impl From<&Function> for FunctionSignature {
 }
 
 impl FunctionSignature {
-    pub fn check_call(&self, arg_types: Vec<Type>, span: Span) -> CheckerResult<()> {
-        if self.args.len() != arg_types.len() {
-            return Err(FunctionCall.add(span, "Wrong number of arguments")
-                .add(self.span, "Function definition is here")
-                .done());
-        }
-        self.args.iter().zip(arg_types).map(|(a, t)| {
-            if a.item == t.item {
-                Ok(())
-            } else {
-                Err(MismatchedTypes.add(a.span, "Expected type of argument")
-                    .add(t.span, "Wrong argument type in call")
-                    .done())
-            }
-        }).acc()
+    fn match_signature(&self, other: &FunctionSignature) -> bool {
+        self.ret_type.item == other.ret_type.item &&
+            self.args.len() == other.args.len() &&
+            self.args.iter().zip(&other.args).fold(true, |v, (t1, t2)| { v && t1.item == t2.item })
     }
 }
 

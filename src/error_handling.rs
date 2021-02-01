@@ -33,6 +33,7 @@ pub enum FrontendError {
     VirtualMethod,
     MissingMain,
     VoidVariable,
+    OverloadedMethod,
 }
 
 impl From<&FrontendError> for String {
@@ -57,7 +58,8 @@ impl From<&FrontendError> for String {
             FrontendError::CircularClassHierarchy => "Detected circular class hierarchy",
             FrontendError::VirtualMethod => "Virtual method not supported",
             FrontendError::MissingMain => "Couldn't find main",
-            FrontendError::    VoidVariable => "Void variable",
+            FrontendError::VoidVariable => "Void variable",
+            FrontendError::OverloadedMethod => "Wrong signature in overloaded method"
         }.to_string()
     }
 }

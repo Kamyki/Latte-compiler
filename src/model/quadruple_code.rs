@@ -77,7 +77,7 @@ impl ControlFlowGraph {
                 Instr::Return(_) => None,
                 Instr::VReturn => None,
                 Instr::Extract(r, _, _) => Some(r),
-                Instr::Insert(_, _, _) => None, // todo maybe None
+                Instr::Insert(_, _, _) => None,
                 Instr::Cast(r, _) => Some(r),
                 Instr::CallM(r, _, _, _) => Some(r),
             }).cloned());

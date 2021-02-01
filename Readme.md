@@ -33,5 +33,7 @@ but you can force `op Register Register` by looking for comments with `USE_REGIS
 - Boolean values made with lazy evaluation.
 - Jumps to next line are removed, but labels are left alone. Order of labeled blocks is semi-random so sometimes compiler produces additional jumps.
 - Static string built into binary. Runtime string allocated using c malloc.
-- Frontend for classes (Backend TBD).
-- not working LSCE optimization.
+- Structs.
+- LSCE optimization.
+- Classes.
+- Classes with virtual methods.

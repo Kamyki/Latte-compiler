@@ -32,20 +32,23 @@ impl<'a> ClassAnalyser<'a> {
     }
 
     fn check_normal_methods(&self, class: &Class) -> CheckerResult<()> {
-        let mut cs = &self.global.classes[class.id.item.as_str()];
+        let support_virtual_method = true;
+        if !support_virtual_method {
+            let mut cs = &self.global.classes[class.id.item.as_str()];
 
-        while let Some(super_class) = &cs.super_class {
-            let scs = &self.global.classes[super_class.item.as_str()];
+            while let Some(super_class) = &cs.super_id {
+                let scs = &self.global.classes[super_class.item.as_str()];
 
-            for (method_name, (_, method)) in cs.methods.iter() {
-                if scs.methods.contains_key(method_name) {
-                    return Err(VirtualMethod.add(method.span, "Virtual method in class are not supported")
-                        .add(scs.type_name.span, "Super method is in this class")
-                        .add(scs.methods[method_name].1.span, "In this place")
-                        .add_over_span(class.span).done());
+                for method in class.methods.iter() {
+                    if let Some(m) = scs.methods.iter().find(|(s, _, _)| s == &method.id.item) {
+                        return Err(VirtualMethod.add(method.span, "Virtual method in class are not supported")
+                            .add(scs.type_name.span, "Super method is in this class")
+                            .add(m.1.span, "In this place")
+                            .add_over_span(class.span).done());
+                    }
                 }
+                cs = scs;
             }
-            cs = scs;
         }
         Ok(())
     }

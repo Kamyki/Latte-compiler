@@ -72,6 +72,13 @@ impl<'a> FunctionAnalyser<'a> {
         }
     }
 
+    fn find_class_method(&self, class: &str, method: &Id) -> Option<&FunctionSignature> {
+        match self {
+            FunctionAnalyser::Root(ga, ..) => ga.find_class_method(class, method),
+            FunctionAnalyser::Frame { global, .. } => global.find_class_method(class, method),
+        }
+    }
+
     fn ret_type(&self) -> &'a Type {
         match self {
             FunctionAnalyser::Root(..) => panic!("It shouldn't happen: Checking return type in global context"),
@@ -223,9 +230,7 @@ impl<'a> FunctionAnalyser<'a> {
                     self.find_function(id).ok_or(UndefinedFunction.add_done(expr.span, "Call to undefined function"))
                 }
                 Target::Field(Field { e, id }) => self.check_expr(e).and_then(|(t, _)| if let IType::Class(c) = t.item {
-                    self.find_class(c.as_str()).ok_or(
-                        UndefinedVariable.add_done(e.span, "Unknown class type")
-                    ).and_then(|o| o.find_method(id).ok_or(UndefinedFunction.add_done(id.span, "Use of undefined class method")))
+                    self.find_class_method(c.as_str(), id).ok_or(UndefinedFunction.add_done(id.span, "Use of undefined class method for this class"))
                 } else {
                     Err(FieldAccess.add_done(expr.span, "Accessing method on non object"))
                 })
@@ -233,7 +238,7 @@ impl<'a> FunctionAnalyser<'a> {
                 .and_then(|args_err: Vec<(Type, bool)>| {
                     let args = args_err.iter().map(|(a,_)| a).cloned().collect();
                     let err = args_err.iter().map(|(_,b)| b).cloned().fold(false, |a, b| a || b);
-                    fg.check_call(args, expr.span).and(Ok(err))
+                    self.check_call(fg, args, expr.span).and(Ok(err))
                 })
                 .and_then(|err|
                     match name {
@@ -246,7 +251,7 @@ impl<'a> FunctionAnalyser<'a> {
             IExpr::Object(o) => Ok((o.clone(), false)),
             IExpr::Null => Ok((Type { span: expr.span, item: IType::Null }, false)),
             IExpr::Cast { t, e } => if let IType::Class(_) = &t.item {
-                self.check_expr(e).and_then(|(et, f)| if et.item == t.item || et.item == IType::Null {
+                self.check_expr(e).and_then(|(et, f)| if self.match_type(t, &et).is_ok() || et.item == IType::Null {
                     Ok((t.clone(), f))
                 } else {
                     Err(CastingError.add_done(e.span, "Cannot cast expresion to intended type"))
@@ -257,12 +262,29 @@ impl<'a> FunctionAnalyser<'a> {
         }
     }
 
+    pub fn check_call(&self, fs: &FunctionSignature, arg_types: Vec<Type>, span: Span) -> CheckerResult<()> {
+        if fs.args.len() != arg_types.len() {
+            return Err(FunctionCall.add(span, "Wrong number of arguments")
+                .add(fs.span, "Function definition is here")
+                .done());
+        }
+        fs.args.iter().zip(arg_types).map(|(a, t)| {
+            if self.match_type(a, &t).is_ok() {
+                Ok(())
+            } else {
+                Err(MismatchedTypes.add(a.span, "Expected type of argument")
+                    .add(t.span, "Wrong argument type in call")
+                    .done())
+            }
+        }).acc()
+    }
+
     fn match_type(&self, t1: &Type, t2: &Type) -> CheckerResult<()> {
         match (&t1.item, &t2.item) {
             (v, r) if v == r => Ok(()),
             (IType::Class(c), IType::Class(v)) =>  {
                 let mut b = self.find_class(v).unwrap();
-                while let Some(id) = &b.super_class {
+                while let Some(id) = &b.super_id {
                     if c == &id.item {
                         return Ok(())
                     }
@@ -377,14 +399,14 @@ impl<'a> FunctionAnalyser<'a> {
                 }
             }
             IBinOp::EQ => {
-                if l.item == r.item {
+                if self.match_type(l, r).is_ok() || self.match_type(r,l).is_ok() {
                     Ok(Type { item: IType::Boolean, span: (l.span.0, r.span.1) })
                 } else {
                     Err(MismatchedTypes.add_done(o.span, "Relation equal works for the same types"))
                 }
             }
             IBinOp::NE => {
-                if l.item == r.item {
+                if self.match_type(l, r).is_ok() || self.match_type(r,l).is_ok()  {
                     Ok(Type { item: IType::Boolean, span: (l.span.0, r.span.1) })
                 } else {
                     Err(MismatchedTypes.add_done(o.span, "Relation not_equal works for the same types"))

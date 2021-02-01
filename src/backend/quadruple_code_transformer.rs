@@ -161,25 +161,30 @@ impl<'a> QuadrupleCodeTransformer<'a> {
         self.inc_num();
         let mut class_transformer = QuadrupleCodeTransformer::new_frame(self, Some(c.id.item.clone()));
 
-        let mut supers = vec![self.find_class(&c.id.item)];
-        while let Some(c2) = &c.super_class {
-            supers.push(self.find_class(&c2.item))
-        }
+        // let mut supers = vec![self.find_class(&c.id.item)];
+        // while let Some(c2) = &c.super_class {
+        //     supers.push(self.find_class(&c2.item));
+        //     c =
+        // }
+        let cs = self.find_class(&c.id.item);
 
         let mut fields = vec![];
-
         let self_obj = Reg::new(IType::Class(c.id.item.clone()), class_transformer.new_label());
-
-        for (field_num, field) in supers.iter().rev().flat_map(|v| &c.fields).enumerate() {
-            class_transformer.insert_var(field.1.clone(), self_obj.clone(), Some((field.0.item.clone(), field_num + 1)));
-            fields.push(     Reg::new(field.0.item.clone(), class_transformer.new_label()));
+        for (field_num, field) in cs.fields.iter().enumerate() {
+            class_transformer.insert_var(field.0.clone(), self_obj.clone(), Some((field.1.item.clone(), field_num + 1)));
+            fields.push(     Reg::new(field.1.item.clone(), class_transformer.new_label()));
         }
         let mut ctable = vec![];
 
-        for method in supers.iter().rev().flat_map(|v| &c.methods) {
-            let name = class_transformer.transform_method(graph, method, &self_obj, &c.id.item);
-            ctable.push(name);
+        for (method, _, class_name) in cs.methods.iter() {
+            let method_mangled_name = format!("_{}_{}", class_name, method);
+            ctable.push(method_mangled_name);
         }
+
+        for method in c.methods.iter() {
+            class_transformer.transform_method(graph, method, &self_obj, &c.id.item);
+        }
+
         let constructor_label = class_transformer.add_constructor(graph, &c.id.item, &fields);
         graph.functions.insert(format!("_new_{}", &c.id.item), (constructor_label.clone(), vec![]));
         graph.classes.insert(c.id.item.clone(), (ctable, fields));
@@ -191,7 +196,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
         let block_label = function_transformer.new_label();
         graph.begin_block(block_label.clone());
         let reg = Reg::new(IType::Class(class.clone()), function_transformer.new_label());
-        graph.push(Instr::Call(reg.clone(), format!("_alloc_size"), vec![Value::Int(fields.len() as i32)]));
+        graph.push(Instr::Call(reg.clone(), format!("_alloc_size"), vec![Value::Int(1 + fields.len() as i32)]));
         let object = Value::Register(reg);
 
         graph.push(Instr::Insert(object.clone(), 0, Value::Const(format!("_vtable_{}", class))));
@@ -210,7 +215,7 @@ impl<'a> QuadrupleCodeTransformer<'a> {
         block_label
     }
 
-    fn transform_method(&mut self, graph: &mut ControlFlowGraph, f: &Function, self_obj: &Reg, class_name: &str) -> String {
+    fn transform_method(&mut self, graph: &mut ControlFlowGraph, f: &Function, self_obj: &Reg, class_name: &str) {
         let method_mangled_name = format!("_{}_{}", class_name, f.id.item);
         self.inc_num();
         let mut method_transformer = QuadrupleCodeTransformer::new_frame(self, Some(method_mangled_name.clone()));
@@ -226,7 +231,6 @@ impl<'a> QuadrupleCodeTransformer<'a> {
         }
         let label = method_transformer.transform_block(graph, &f.block, None);
         graph.functions.insert(method_mangled_name.clone(), (label, arg_reg));
-        method_mangled_name
     }
 
     fn transform_function(&mut self, graph: &mut ControlFlowGraph, f: &Function) {
